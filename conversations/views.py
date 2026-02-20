@@ -27,7 +27,7 @@ class ChatAPIView(APIView):
         message = request.data.get("message")
         if not message:
             return Response({"error": "Message required"}, status=400)
-
+        
         # 🔎 Retrieve knowledge
         context = retrieve_relevant_chunks(agent, message)
         print("MESSAGE:", message)
