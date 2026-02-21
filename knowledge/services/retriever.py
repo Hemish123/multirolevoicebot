@@ -205,8 +205,8 @@ Document Chunks:
 """
 
     response = generate_response(
-        system_prompt="You retrieve document chunks only.",
-        user_prompt=retrieval_prompt
+    "You retrieve document chunks only.",
+    retrieval_prompt
     )
 
     indexes = []

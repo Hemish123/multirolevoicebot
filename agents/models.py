@@ -27,14 +27,51 @@ class AgentRoleTemplate(models.Model):
 
 class VoiceAgent(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="agents")
-    template = models.ForeignKey(AgentRoleTemplate, on_delete=models.SET_NULL, null=True)
+
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="agents"
+    )
+
+    industry = models.ForeignKey(
+        Industry,
+        on_delete=models.CASCADE,
+        related_name="agents"
+    )
+
+    role_template = models.ForeignKey(
+        AgentRoleTemplate,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="agents"
+    )
+
     name = models.CharField(max_length=100)
     company_name = models.CharField(max_length=100, blank=True)
-    resolved_prompt = models.TextField()
+
     api_key = models.UUIDField(default=uuid.uuid4, unique=True)
+
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.name
+
+    # 🔥 Dynamic prompt resolution
+    @property
+    def resolved_prompt(self):
+        if not self.role_template:
+            return ""
+
+        return self.role_template.system_prompt_template.format(
+            agent_name=self.name,
+            company_name=self.company_name or "the organization"
+        )
+
+    # 🔒 Validation to prevent wrong role-industry pairing
+    def save(self, *args, **kwargs):
+        if self.role_template and self.role_template.industry != self.industry:
+            raise ValueError("Selected role does not belong to chosen industry")
+
+        super().save(*args, **kwargs)

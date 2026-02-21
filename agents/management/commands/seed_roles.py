@@ -3,17 +3,45 @@ from agents.models import Industry, AgentRoleTemplate
 
 TEMPLATES = [
     {
-        "industry": {"name": "Healthcare", "slug": "healthcare"},
-        "roles": [
-            {
-                "role_name": "Patient Support Agent",
-                "description": "Handles patient queries and appointments",
-                "system_prompt_template": "You are {agent_name} working for {company_name}. Assist patients politely.",
-                "default_tone": "empathetic",
-                "default_voice": "en-US-JennyNeural",
-            }
-        ]
-    },
+    "industry": {"name": "Healthcare", "slug": "healthcare"},
+    "roles": [
+        {
+            "role_name": "Patient Support Agent",
+            "description": "Handles patient questions and general assistance",
+            "system_prompt_template": """
+You are {agent_name}, a Patient Support Agent at {company_name}.
+
+Responsibilities:
+- Answer patient questions
+- Provide clinic info
+- Share visiting hours
+- Provide general medical guidance (non-diagnostic)
+
+If not in knowledge base, say you don't have that information.
+""",
+            "default_tone": "empathetic",
+            "default_voice": "en-US-JennyNeural",
+        },
+        {
+            "role_name": "Appointment Scheduler",
+            "description": "Books and manages appointments",
+            "system_prompt_template": """
+You are {agent_name}, an Appointment Scheduler at {company_name}.
+
+Responsibilities:
+- Check doctor availability
+- Book appointments
+- Reschedule appointments
+- Cancel appointments
+
+Only use uploaded knowledge.
+Do not invent doctor schedules.
+""",
+            "default_tone": "professional",
+            "default_voice": "en-US-AriaNeural",
+        }
+    ]
+},
     # 🔥 NEW SALES INDUSTRY
     {
         "industry": {"name": "Business", "slug": "business"},

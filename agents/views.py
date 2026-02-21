@@ -8,7 +8,9 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import Industry, AgentRoleTemplate, VoiceAgent
 from .serializers import IndustrySerializer, CreateAgentSerializer
 from .services.template_resolver import resolve_prompt
-
+from .serializers import AgentRoleTemplateSerializer
+from django.core.exceptions import ValidationError
+from rest_framework import status
 
 class ListIndustriesView(APIView):
     permission_classes = [AllowAny]
@@ -18,38 +20,88 @@ class ListIndustriesView(APIView):
         return Response(IndustrySerializer(industries, many=True).data)
 
 
+# class CreateAgentView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def post(self, request):
+#         serializer = CreateAgentSerializer(data=request.data)
+#         serializer.is_valid(raise_exception=True)
+
+#         template = AgentRoleTemplate.objects.filter(
+#             id=serializer.validated_data["template_id"]
+#         ).first()
+
+#         if not template:
+#             return Response({"error": "Template not found"}, status=404)
+
+#         resolved = resolve_prompt(
+#             template,
+#             serializer.validated_data["agent_name"],
+#             serializer.validated_data.get("company_name", "")
+#         )
+
+#         agent = VoiceAgent.objects.create(
+#             owner=request.user,
+#             template=template,
+#             name=serializer.validated_data["agent_name"],
+#             company_name=serializer.validated_data.get("company_name", ""),
+#             resolved_prompt=resolved
+#         )
+
+#         return Response({
+#             "agent_id": str(agent.id),
+#             "api_key": str(agent.api_key)
+#         })
+
+
 class CreateAgentView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        serializer = CreateAgentSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        industry_id = request.data.get("industry")
+        role_template_id = request.data.get("role_template")
+        name = request.data.get("name")
+        company_name = request.data.get("company_name", "")
 
-        template = AgentRoleTemplate.objects.filter(
-            id=serializer.validated_data["template_id"]
-        ).first()
+        if not all([industry_id, role_template_id, name]):
+            return Response(
+                {"error": "industry, role_template and name are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        if not template:
-            return Response({"error": "Template not found"}, status=404)
+        industry = Industry.objects.filter(id=industry_id).first()
+        if not industry:
+            return Response({"error": "Industry not found"}, status=404)
 
-        resolved = resolve_prompt(
-            template,
-            serializer.validated_data["agent_name"],
-            serializer.validated_data.get("company_name", "")
-        )
+        role_template = AgentRoleTemplate.objects.filter(id=role_template_id).first()
+        if not role_template:
+            return Response({"error": "Role template not found"}, status=404)
 
-        agent = VoiceAgent.objects.create(
-            owner=request.user,
-            template=template,
-            name=serializer.validated_data["agent_name"],
-            company_name=serializer.validated_data.get("company_name", ""),
-            resolved_prompt=resolved
-        )
+        # Validate role belongs to industry
+        if role_template.industry != industry:
+            return Response(
+                {"error": "Selected role does not belong to selected industry"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            agent = VoiceAgent.objects.create(
+                owner=request.user,
+                industry=industry,
+                role_template=role_template,
+                name=name,
+                company_name=company_name,
+            )
+        except ValidationError as e:
+            return Response({"error": str(e)}, status=400)
 
         return Response({
             "agent_id": str(agent.id),
             "api_key": str(agent.api_key)
-        })
+        }, status=201)
+
+
+
 
 
 class ListUserAgentsView(APIView):
@@ -92,3 +144,28 @@ class RegenerateAPIKeyView(APIView):
         agent.api_key = uuid.uuid4()
         agent.save()
         return Response({"api_key": str(agent.api_key)})
+    
+
+
+class RoleByIndustryAPIView(APIView):
+    def get(self, request, industry_id):
+        roles = AgentRoleTemplate.objects.filter(industry_id=industry_id)
+
+        serializer = AgentRoleTemplateSerializer(roles, many=True)
+
+        return Response(serializer.data)
+    
+class IndustryListAPIView(APIView):
+    def get(self, request):
+        industries = Industry.objects.all()
+
+        data = [
+            {
+                "id": industry.id,
+                "name": industry.name,
+                "slug": industry.slug
+            }
+            for industry in industries
+        ]
+
+        return Response(data)
