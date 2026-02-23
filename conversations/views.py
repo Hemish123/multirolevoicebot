@@ -151,6 +151,36 @@ from agents.models import VoiceAgent
 from conversations.services.core.dialogue_engine import process_message
 
 
+# class ChatAPIView(APIView):
+#     authentication_classes = []
+#     permission_classes = []
+
+#     def post(self, request, agent_id):
+#         api_key = request.headers.get("X-API-KEY")
+
+#         agent = VoiceAgent.objects.filter(
+#             id=agent_id,
+#             api_key=api_key,
+#             is_active=True
+#         ).first()
+
+#         if not agent:
+#             return Response({"error": "Unauthorized"}, status=401)
+
+#         message = request.data.get("message")
+#         if not message:
+#             return Response({"error": "Message required"}, status=400)
+
+#         reply = process_message(agent, message)
+
+#         return Response({
+#             "agent": agent.name,
+#             "reply": reply
+#         })
+
+
+
+
 class ChatAPIView(APIView):
     authentication_classes = []
     permission_classes = []
@@ -171,9 +201,18 @@ class ChatAPIView(APIView):
         if not message:
             return Response({"error": "Message required"}, status=400)
 
-        reply = process_message(agent, message)
+        # 🔹 Get session_id from request (if continuing conversation)
+        session_id = request.data.get("session_id")
+
+        # 🔹 Call conversation engine
+        reply, session_id = process_message(
+            agent=agent,
+            message=message,
+            session_id=session_id
+        )
 
         return Response({
             "agent": agent.name,
-            "reply": reply
+            "reply": reply,
+            "session_id": session_id
         })
