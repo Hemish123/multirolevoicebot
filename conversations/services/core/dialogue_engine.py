@@ -132,6 +132,16 @@ from conversations.services.azure_openai_service import generate_response
 from conversations.services.core.intent_classifier import classify_intent
 from conversations.models import ConversationSession
 import uuid
+from conversations.services.core.behavior_router import get_role_strategy
+from conversations.services.core.strategies import (
+    information_strategy,
+    transaction_strategy,
+    qualification_strategy
+)
+
+
+
+
 
 
 def process_message(agent, message, session_id=None):
@@ -148,14 +158,18 @@ def process_message(agent, message, session_id=None):
     # 2️⃣ Detect Intent (AI-based)
     intent_data = classify_intent(message)
     intent = intent_data.get("intent", "unknown")
+    print("---- DEBUG START ----")
+    print("MESSAGE:", message)
+    print("INTENT:", intent)
+    print("STAGE BEFORE:", session.stage)
+    print("STATE BEFORE:", session.state)
+    print("----------------------")
     session.current_intent = intent
 
     # 3️⃣ GLOBAL ROUTER (Intent-Level)
 
-    if intent == "greeting":
+    if intent == "greeting" and not session.stage and not session.state:
         reply = f"Hello! Welcome to {agent.company_name or agent.name}. How can I assist you today?"
-        session.stage = "active"
-        session.save()
         return reply, session_id
 
     if intent == "complaint":
@@ -169,37 +183,71 @@ def process_message(agent, message, session_id=None):
         session.stage = "emergency"
         session.save()
         return reply, session_id
+    
 
-    # 4️⃣ Knowledge-Based Flow (RAG)
-    context = retrieve_relevant_chunks(agent, message)
+    role_name = agent.role_template.role_name
+    strategy_type = get_role_strategy(role_name)
 
-    if not context.strip():
-        reply = "This information is not mentioned in the uploaded document."
-        session.save()
-        return reply, session_id
+    # 🔥 Only for Appointment Scheduler (transaction type)
+    if strategy_type == "transaction":
 
-    # 5️⃣ Build Conversational Prompt
-    system_prompt = f"""
-{agent.resolved_prompt}
+        # 1️⃣ If booking flow is currently active → continue it
+        if session.stage in ["collecting_date", "collecting_time", "confirming"]:
+            reply = transaction_strategy(agent, message, session)
 
-Detected Intent: {intent}
+        # 2️⃣ If user explicitly wants to book → start transaction
+        elif (
+            intent == "appointment_request"
+            or any(word in message.lower() for word in ["book", "appointment", "schedule"])
+        ):
+            # Reset previous state
+            session.stage = None
+            session.state = {}
+            session.save()
+            reply = transaction_strategy(agent, message, session)
 
-Conversation Stage: {session.stage or "new"}
+        # 3️⃣ Otherwise → treat as knowledge question
+        else:
+            reply = information_strategy(agent, message, session)
 
-Knowledge Context:
-{context}
+    elif strategy_type == "qualification":
+        reply = qualification_strategy(agent, message, session)
 
-Rules:
-- Respond conversationally like a human professional.
-- Use only the knowledge context.
-- If information is missing, say:
-  "This information is not mentioned in the uploaded document."
-- Do NOT hallucinate.
-"""
-
-    reply = generate_response(system_prompt, message)
-
-    session.stage = "active"
-    session.save()
+    else:
+        reply = information_strategy(agent, message, session)
 
     return reply, session_id
+
+#     # 4️⃣ Knowledge-Based Flow (RAG)
+#     context = retrieve_relevant_chunks(agent, message)
+
+#     if not context.strip():
+#         reply = "This information is not mentioned in the uploaded document."
+#         session.save()
+#         return reply, session_id
+
+#     # 5️⃣ Build Conversational Prompt
+#     system_prompt = f"""
+# {agent.resolved_prompt}
+
+# Detected Intent: {intent}
+
+# Conversation Stage: {session.stage or "new"}
+
+# Knowledge Context:
+# {context}
+
+# Rules:
+# - Respond conversationally like a human professional.
+# - Use only the knowledge context.
+# - If information is missing, say:
+#   "This information is not mentioned in the uploaded document."
+# - Do NOT hallucinate.
+# """
+
+#     reply = generate_response(system_prompt, message)
+
+#     session.stage = "active"
+#     session.save()
+
+#     return reply, session_id
