@@ -216,3 +216,27 @@ class ChatAPIView(APIView):
             "reply": reply,
             "session_id": session_id
         })
+    
+
+
+class BotListAPIView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request):
+        bots = VoiceAgent.objects.filter(
+            is_active=True
+        ).select_related("industry", "role_template")
+
+        data = []
+
+        for bot in bots:
+            data.append({
+                "id": bot.id,
+                "name": bot.name,
+                "industry": bot.industry.name,
+                "role": bot.role_template.role_name if bot.role_template else None,
+                "company_name": bot.company_name,
+            })
+
+        return Response({"bots": data})

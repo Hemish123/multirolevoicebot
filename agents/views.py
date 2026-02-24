@@ -169,3 +169,36 @@ class IndustryListAPIView(APIView):
         ]
 
         return Response(data)
+
+
+class DemoBotResolverAPIView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        industry_id = request.GET.get("industry_id")
+        role_id = request.GET.get("role_id")
+
+        if not industry_id or not role_id:
+            return Response(
+                {"error": "industry_id and role_id are required"},
+                status=400
+            )
+
+        bot = VoiceAgent.objects.filter(
+            industry_id=industry_id,
+            role_template_id=role_id,
+            is_demo=True,
+            is_active=True
+        ).first()
+
+        if not bot:
+            return Response(
+                {"error": "No demo bot found for this role"},
+                status=404
+            )
+
+        return Response({
+            "bot_id": str(bot.id),
+            "name": bot.name,
+            "api_key": str(bot.api_key)
+        })

@@ -6,6 +6,7 @@ from .views import (
     ListUserAgentsView,
     ToggleAgentView,
     RegenerateAPIKeyView,
+    DemoBotResolverAPIView,
 )
 
 urlpatterns = [
@@ -15,5 +16,6 @@ urlpatterns = [
     path("<uuid:agent_id>/toggle/", ToggleAgentView.as_view()),
     path("<uuid:agent_id>/regenerate-key/", RegenerateAPIKeyView.as_view()),
     path("roles/<int:industry_id>/", RoleByIndustryAPIView.as_view()),
-    path("roles/<int:industry_id>/", RoleByIndustryAPIView.as_view()),
+    path("demo-bot/", DemoBotResolverAPIView.as_view()),
+
 ]
