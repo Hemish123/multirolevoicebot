@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Industry Demo Platform</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: system-ui;
+            max-width: 900px;
+            margin: 40px auto;
+            background: #f8fafc;
+        }
+
+        h2 { text-align: center; }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        select, button {
+            padding: 10px;
+        }
+
+        #chat {
+            height: 400px;
+            overflow-y: auto;
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #ddd;
+        }
+
+        .user {
+            text-align: right;
+            margin: 10px;
+            color: #2563eb;
+        }
+
+        .bot {
+            text-align: left;
+            margin: 10px;
+            color: #111827;
+        }
+
+        .input-area {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+        }
+
+        input {
+            flex: 1;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<h2>🤖 AI Industry Demo Platform</h2>
+
+<div class="controls">
+    <select id="industry"></select>
+    <select id="role"></select>
+    <button onclick="startChat()">Start</button>
+</div>
+
+<div id="chat"></div>
+
+<div class="input-area">
+    <input type="text" id="message" placeholder="Type message..." />
+    <button onclick="sendMessage()">Send</button>
+</div>
+
+<script>
+
+let selectedIndustry = null;
+let selectedRole = null;
+let sessionId = null;
+
+async function loadIndustries() {
+    const res = await fetch("/api/agents/industries/");
+    const industries = await res.json();
+    const dropdown = document.getElementById("industry");
+    dropdown.innerHTML = "";
+
+    industries.forEach(i => {
+        dropdown.innerHTML += `<option value="${i.id}">${i.name}</option>`;
+    });
+
+    if (industries.length > 0) {
+        selectedIndustry = industries[0].id;
+        loadRoles(selectedIndustry);
+    }
+}
+
+async function loadRoles(industryId) {
+    const res = await fetch(`/api/agents/roles/${industryId}/`);
+    const roles = await res.json();
+    const dropdown = document.getElementById("role");
+    dropdown.innerHTML = "";
+
+    roles.forEach(r => {
+        dropdown.innerHTML += `<option value="${r.id}">${r.role_name}</option>`;
+    });
+
+    if (roles.length > 0) {
+        selectedRole = roles[0].id;
+    }
+}
+
+document.getElementById("industry").addEventListener("change", (e) => {
+    selectedIndustry = e.target.value;
+    loadRoles(selectedIndustry);
+});
+
+document.getElementById("role").addEventListener("change", (e) => {
+    selectedRole = e.target.value;
+});
+
+function startChat() {
+    document.getElementById("chat").innerHTML = "";
+    sessionId = null;
+}
+
+async function sendMessage() {
+    const input = document.getElementById("message");
+    const message = input.value.trim();
+    if (!message) return;
+
+    appendMessage("user", message);
+    input.value = "";
+
+    const res = await fetch("/api/demo/chat/", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            industry_id: selectedIndustry,
+            role_id: selectedRole,
+            message: message,
+            session_id: sessionId
+        })
+    });
+
+    const data = await res.json();
+    sessionId = data.session_id;
+    appendMessage("bot", data.reply);
+}
+
+function appendMessage(type, text) {
+    const div = document.createElement("div");
+    div.className = type;
+    div.innerText = text;
+    document.getElementById("chat").appendChild(div);
+}
+
+loadIndustries();
+
+</script>
+
+</body>
+</html>

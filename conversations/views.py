@@ -149,6 +149,14 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from agents.models import VoiceAgent
 from conversations.services.core.dialogue_engine import process_message
+from rest_framework.permissions import AllowAny
+from django.shortcuts import render
+
+
+
+def demo_page(request):
+    return render(request, "demo_chat.html")
+
 
 
 # class ChatAPIView(APIView):
@@ -240,3 +248,46 @@ class BotListAPIView(APIView):
             })
 
         return Response({"bots": data})
+
+
+class DemoChatAPIView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        industry_id = request.data.get("industry_id")
+        role_id = request.data.get("role_id")
+        message = request.data.get("message")
+        session_id = request.data.get("session_id")
+
+        if not all([industry_id, role_id, message]):
+            return Response(
+                {"error": "industry_id, role_id and message are required"},
+                status=400
+            )
+
+        # 🔎 Resolve Demo Bot Internally
+        bot = VoiceAgent.objects.filter(
+            industry_id=industry_id,
+            role_template_id=role_id,
+            is_demo=True,
+            is_active=True
+        ).first()
+
+        if not bot:
+            return Response(
+                {"error": "No demo bot found for selected role"},
+                status=404
+            )
+
+        # 🧠 Call existing conversation engine
+        reply, session_id = process_message(
+            agent=bot,
+            message=message,
+            session_id=session_id
+        )
+
+        return Response({
+            "reply": reply,
+            "session_id": session_id
+        })
