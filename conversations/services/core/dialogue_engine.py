@@ -136,21 +136,22 @@ from conversations.services.core.behavior_router import get_role_strategy
 from conversations.services.core.strategies import (
     information_strategy,
     transaction_strategy,
-    qualification_strategy
+    qualification_strategy,
+    support_strategy,
 )
-
-
+ 
+ 
 def process_message(agent, message, session_id=None):
-
+ 
     # 1️⃣ Create or Load Session
     if not session_id:
         session_id = str(uuid.uuid4())
-
+ 
     session, _ = ConversationSession.objects.get_or_create(
         agent=agent,
         session_id=session_id
     )
-
+ 
     # 2️⃣ Detect Intent (AI-based)
     intent_data = classify_intent(message)
     intent = intent_data.get("intent", "unknown")
@@ -161,36 +162,36 @@ def process_message(agent, message, session_id=None):
     print("STATE BEFORE:", session.state)
     print("----------------------")
     session.current_intent = intent
-
+ 
     # 3️⃣ GLOBAL ROUTER (Intent-Level)
-
+ 
     if intent == "greeting" and not session.stage and not session.state:
         reply = f"Hello! Welcome to {agent.company_name or agent.name}. How can I assist you today?"
         return reply, session_id
-
+ 
     if intent == "complaint":
         reply = "I'm sorry to hear that. Could you please provide more details so I can assist you better?"
         session.stage = "handling_complaint"
         session.save()
         return reply, session_id
-
-    if intent == "emergency":
-        reply = "If this is an emergency, please contact local emergency services immediately."
-        session.stage = "emergency"
-        session.save()
-        return reply, session_id
-    
-
+ 
+    # if intent == "emergency":
+    #     reply = "If this is an emergency, please contact local emergency services immediately."
+    #     session.stage = "emergency"
+    #     session.save()
+    #     return reply, session_id
+   
+ 
     role_name = agent.role_template.role_name
     strategy_type = get_role_strategy(role_name)
-
+ 
     # 🔥 Only for Appointment Scheduler (transaction type)
     if strategy_type == "transaction":
-
+ 
         # 1️⃣ If booking flow is currently active → continue it
-        if session.stage in ["collecting_date", "collecting_time", "confirming"]:
+        if session.stage in ["collecting_name","collecting_date", "collecting_time", "confirming"]:
             reply = transaction_strategy(agent, message, session)
-
+ 
         # 2️⃣ If user explicitly wants to book → start transaction
         elif (
             intent == "appointment_request"
@@ -201,16 +202,55 @@ def process_message(agent, message, session_id=None):
             session.state = {}
             session.save()
             reply = transaction_strategy(agent, message, session)
-
+ 
         # 3️⃣ Otherwise → treat as knowledge question
         else:
             reply = information_strategy(agent, message, session)
-
+ 
+    elif strategy_type == "support":
+ 
+        # 🔹 If booking intent → start transaction flow
+        if (
+            intent in ["booking_request", "appointment_request"]
+            or any(word in message.lower() for word in ["book", "appointment", "schedule"])
+            or session.stage in ["collecting_name", "collecting_date", "collecting_time", "confirming"]
+        ):
+            reply = transaction_strategy(agent, message, session)
+ 
+        else:
+            reply = support_strategy(agent, message, session)
+ 
+ 
     elif strategy_type == "qualification":
         reply = qualification_strategy(agent, message, session)
-
+ 
+    elif strategy_type == "smart_real_estate":
+ 
+    # If booking intent → transaction
+        if intent in ["booking_request", "site_visit_request"]:
+            reply = transaction_strategy(agent, message, session)
+ 
+        # If buying / searching intent → qualification
+        elif any(word in message.lower() for word in [
+            "2bhk", "3bhk", "villa", "flat", "apartment",
+            "budget", "lakh", "cr", "property", "looking"
+        ]):
+            reply = qualification_strategy(agent, message, session)
+ 
+        # Otherwise → general information
+        else:
+            reply = information_strategy(agent, message, session)
+ 
     else:
         reply = information_strategy(agent, message, session)
+ 
+    
+    # formatted_reply = ResponseFormatter.format(
+    #     reply,
+    #     strategy_type=strategy_type,
+    #     intent=intent,
+    #     agent_name=agent.name
+    #     )
 
     return reply, session_id
 

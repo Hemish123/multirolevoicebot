@@ -1,164 +1,894 @@
-<!DOCTYPE html>
-<html>
+{% comment %} <!DOCTYPE html>
+<html lang="en">
 <head>
-    <title>AI Industry Demo Platform</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body {
-            font-family: system-ui;
-            max-width: 900px;
-            margin: 40px auto;
-            background: #f8fafc;
-        }
+<meta charset="UTF-8">
+<title>AI Industry Demo Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-        h2 { text-align: center; }
+<style>
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: system-ui, sans-serif;
+  background: radial-gradient(circle at top, #F8FAFC, #D9EAFD 70%);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
 
-        .controls {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
+.container {
+  width: 100%;
+  max-width: 900px;
+  padding: 20px;
+}
 
-        select, button {
-            padding: 10px;
-        }
+.controls {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 20px;
+}
 
-        #chat {
-            height: 400px;
-            overflow-y: auto;
-            background: white;
-            padding: 15px;
-            border-radius: 10px;
-            border: 1px solid #ddd;
-        }
+select, button {
+  padding: 10px;
+  font-size: 15px;
+}
 
-        .user {
-            text-align: right;
-            margin: 10px;
-            color: #2563eb;
-        }
+.card {
+  background: #F8FAFC;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 0 0 1px #BCCCDC, 0 25px 45px rgba(154,166,178,0.35);
+}
 
-        .bot {
-            text-align: left;
-            margin: 10px;
-            color: #111827;
-        }
+.chat {
+  max-height: 420px;
+  overflow-y: auto;
+}
 
-        .input-area {
-            margin-top: 15px;
-            display: flex;
-            gap: 10px;
-        }
+.bot {
+  background: #D9EAFD;
+  border-left: 6px solid #9AA6B2;
+  padding: 14px;
+  border-radius: 14px;
+  margin-bottom: 16px;
+  max-width: 75%;
+}
 
-        input {
-            flex: 1;
-            padding: 10px;
-        }
-    </style>
+.user {
+  background: #b8d5f1;
+  border-right: 6px solid #9AA6B2;
+  padding: 14px;
+  border-radius: 14px;
+  margin-bottom: 16px;
+  margin-left: auto;
+  max-width: 75%;
+  text-align: right;
+}
+
+.footer input {
+  width: 100%;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid #BCCCDC;
+  background: #DBEAFE;
+  text-align: center;
+}
+
+
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(248, 250, 252, 0.92);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.loading-box {
+  text-align: center;
+}
+
+.spinner {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 6px solid #c7d2fe;
+  border-top-color: #4f46e5;
+  animation: spin 1s linear infinite;
+  margin: auto;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  margin-top: 16px;
+  font-size: 15px;
+  color: #475569;
+}
+
+</style>
 </head>
+
 <body>
 
-<h2>🤖 AI Industry Demo Platform</h2>
+<div class="container">
 
-<div class="controls">
+  <h2 style="text-align:center;">🤖 AI Industry Demo</h2>
+
+  <div class="controls">
     <select id="industry"></select>
     <select id="role"></select>
     <button onclick="startChat()">Start</button>
-</div>
+  </div>
 
-<div id="chat"></div>
+  <div class="card" id="chatCard" style="display:none;">
+    <div class="chat" id="chat"></div>
+    <div class="footer">
+      <input id="status" placeholder="🎤" disabled />
+    </div>
+  </div>
 
-<div class="input-area">
-    <input type="text" id="message" placeholder="Type message..." />
-    <button onclick="sendMessage()">Send</button>
+    <div id="loadingOverlay" class="loading-overlay" style="display:none;">
+        <div class="loading-box">
+            <div class="spinner"></div>
+            <div class="loading-text">Starting assistant…</div>
+        </div>
+    </div>
+
 </div>
 
 <script>
+/* ================= CONFIG ================= */
+const CHAT_API = "/api/demo/chat/";
+const INDUSTRY_API = "/api/agents/industries/";
+const ROLE_API = "/api/agents/roles/";
 
+/* ================= STATE ================= */
 let selectedIndustry = null;
 let selectedRole = null;
 let sessionId = null;
 
+let recognition = null;
+let micActive = false;
+let botSpeaking = false;
+
+let silenceTimer = null;
+let speechBuffer = "";
+let ignoreNextResult = false;
+
+const USER_LONG_SILENCE_LIMIT = 1000;
+
+/* ================= DOM ================= */
+const chat = document.getElementById("chat");
+const statusInput = document.getElementById("status");
+
+/* ================= UI ================= */
+function addBot(text) {
+  if (!text) return;
+  chat.innerHTML += `<div class="bot">${text}</div>`;
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function addUser(text) {
+  if (!text) return;
+  let last = chat.querySelector(".user:last-child");
+  if (last) last.innerText = text;
+  else chat.innerHTML += `<div class="user">${text}</div>`;
+  chat.scrollTop = chat.scrollHeight;
+}
+
+/* ================= LOAD DROPDOWNS ================= */
 async function loadIndustries() {
-    const res = await fetch("/api/agents/industries/");
-    const industries = await res.json();
-    const dropdown = document.getElementById("industry");
-    dropdown.innerHTML = "";
+  const r = await fetch(INDUSTRY_API);
+  const d = await r.json();
+  industry.innerHTML = d.map(i => `<option value="${i.id}">${i.name}</option>`).join("");
+  selectedIndustry = industry.value;
+  loadRoles();
+}
 
-    industries.forEach(i => {
-        dropdown.innerHTML += `<option value="${i.id}">${i.name}</option>`;
-    });
+async function loadRoles() {
+  const r = await fetch(`${ROLE_API}${selectedIndustry}/`);
+  const d = await r.json();
+  role.innerHTML = d.map(r => `<option value="${r.id}">${r.role_name}</option>`).join("");
+  selectedRole = role.value;
+}
 
-    if (industries.length > 0) {
-        selectedIndustry = industries[0].id;
-        loadRoles(selectedIndustry);
+industry.onchange = e => { selectedIndustry = e.target.value; loadRoles(); };
+role.onchange = e => selectedRole = e.target.value;
+
+/* ================= MIC ================= */
+function initMic() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return alert("Speech recognition not supported");
+
+  recognition = new SR();
+  recognition.lang = "en-IN";
+  recognition.continuous = false;
+  recognition.interimResults = false;
+
+    recognition.onstart = () => {
+    if (botSpeaking) {
+        stopMic();      // 🔒 kill premature mic
+        return;
     }
-}
+    micActive = true;
+    statusInput.value = "🎤 Listening…";
+    };
 
-async function loadRoles(industryId) {
-    const res = await fetch(`/api/agents/roles/${industryId}/`);
-    const roles = await res.json();
-    const dropdown = document.getElementById("role");
-    dropdown.innerHTML = "";
-
-    roles.forEach(r => {
-        dropdown.innerHTML += `<option value="${r.id}">${r.role_name}</option>`;
-    });
-
-    if (roles.length > 0) {
-        selectedRole = roles[0].id;
+  recognition.onresult = e => {
+    if (ignoreNextResult) {
+      ignoreNextResult = false;
+      return;
     }
+
+    const text = e.results[0][0].transcript.trim();
+    if (!text) return;
+
+    speechBuffer += (speechBuffer ? " " : "") + text;
+    addUser(speechBuffer);
+
+    clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(finalizeUserSpeech, USER_LONG_SILENCE_LIMIT);
+  };
+
+  recognition.onend = () => {
+    if (micActive && !botSpeaking) {
+      try { recognition.start(); } catch {}
+    }
+  };
 }
 
-document.getElementById("industry").addEventListener("change", (e) => {
-    selectedIndustry = e.target.value;
-    loadRoles(selectedIndustry);
-});
+function startMic() {
+  // 🔒 ABSOLUTE SAFETY
+  if (botSpeaking) return;
 
-document.getElementById("role").addEventListener("change", (e) => {
-    selectedRole = e.target.value;
-});
+  if (!recognition) initMic();
+  micActive = true;
+  speechBuffer = "";
 
-function startChat() {
-    document.getElementById("chat").innerHTML = "";
-    sessionId = null;
+  try { recognition.start(); } catch {}
 }
 
-async function sendMessage() {
-    const input = document.getElementById("message");
-    const message = input.value.trim();
-    if (!message) return;
-
-    appendMessage("user", message);
-    input.value = "";
-
-    const res = await fetch("/api/demo/chat/", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            industry_id: selectedIndustry,
-            role_id: selectedRole,
-            message: message,
-            session_id: sessionId
-        })
-    });
-
-    const data = await res.json();
-    sessionId = data.session_id;
-    appendMessage("bot", data.reply);
+function stopMic() {
+  micActive = false;
+  if (recognition) {
+    try { recognition.stop(); } catch {}
+  }
 }
 
-function appendMessage(type, text) {
-    const div = document.createElement("div");
-    div.className = type;
-    div.innerText = text;
-    document.getElementById("chat").appendChild(div);
+/* ================= BOT AUDIO ================= */
+function playAudio(base64) {
+  // 🔒 Bot owns mic
+  stopMic();
+  botSpeaking = true;
+  statusInput.value = "🗣️ Speaking…";
+
+  // Safety fallback
+  if (!base64) {
+    botSpeaking = false;
+    statusInput.value = "🎤 Listening…";
+    startMic();     // only here
+    return;
+  }
+
+  const audio = new Audio("data:audio/wav;base64," + base64);
+
+  audio.onended = () => {
+    // ✅ STEP 3: Bot finished
+    botSpeaking = false;
+
+    // ✅ STEP 4: Mic ON
+    statusInput.value = "🎤 Listening…";
+    startMic();
+  };
+
+  audio.play().catch(() => {
+    botSpeaking = false;
+    startMic();
+  });
+}
+/* ================= FINALIZE USER ================= */
+function finalizeUserSpeech() {
+  stopMic();
+
+  const text = speechBuffer.trim();
+  speechBuffer = "";
+
+  if (!text) return;
+  sendUserMessage(text);
 }
 
+/* ================= SEND USER ================= */
+async function sendUserMessage(text) {
+  const r = await fetch(CHAT_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      industry_id: selectedIndustry,
+      role_id: selectedRole,
+      message: text,
+      session_id: sessionId
+    })
+  });
+
+  const d = await r.json();
+  sessionId = d.session_id;
+
+  addBot(d.reply);
+  playAudio(d.audio);
+}
+
+/* ================= START (BOT FIRST) ================= */
+async function startChat() {
+  // Show chat UI
+  document.getElementById("chatCard").style.display = "block";
+  chat.innerHTML = "";
+  sessionId = null;
+
+  // 🔒 ABSOLUTE MIC LOCK
+  stopMic();
+  botSpeaking = true;
+
+  // Ask backend to START conversation
+  const r = await fetch(CHAT_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      industry_id: selectedIndustry,
+      role_id: selectedRole,
+      message: "",          // empty string, not null
+      session_id: null
+    })
+  });
+
+  const d = await r.json();
+  sessionId = d.session_id;
+
+  // ✅ STEP 1: Show greeting text FIRST
+  addBot(d.reply);
+
+  // ✅ STEP 2: Play greeting audio
+  playAudio(d.audio);
+}
+
+
+
+/* INIT */
 loadIndustries();
+</script>
 
+</body>
+</html> {% endcomment %}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Industry Demo Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+/* ================= BASE ================= */
+
+/* ================= HERO ================= */
+.hero {
+  text-align: center;
+  margin-bottom: 26px;
+}
+
+.ai-orb {
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 30%, #a5b4fc, #6366f1, #312e81);
+  box-shadow:
+    0 0 28px rgba(99,102,241,.6),
+    inset 0 0 18px rgba(255,255,255,.35);
+  animation: pulse 3s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 28px rgba(99,102,241,.6); }
+  50% { transform: scale(1.05); box-shadow: 0 0 40px rgba(99,102,241,.9); }
+}
+
+.hero-title {
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.hero-sub {
+  font-size: 14px;
+  color: #475569;
+  margin-top: 6px;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: system-ui, sans-serif;
+  background: radial-gradient(circle at top, #f8fafc, #dbeafe 70%);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.container {
+  width: 100%;
+  max-width: 900px;
+  padding: 20px;
+}
+
+/* ================= CONTROLS ================= */
+.controls {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 22px;
+}
+
+select, button {
+  padding: 10px 14px;
+  font-size: 15px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+}
+
+button {
+  cursor: pointer;
+  background: #4f46e5;
+  color: white;
+  font-weight: 600;
+}
+
+button:hover {
+  background: #4338ca;
+}
+
+/* ================= CARD ================= */
+.card {
+  background: #f8fafc;
+  border-radius: 18px;
+  padding: 20px;
+  box-shadow:
+    0 0 0 1px #cbd5e1,
+    0 25px 45px rgba(148,163,184,0.35);
+}
+
+.chat {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+/* ================= MESSAGES ================= */
+.bot {
+  background: #e0f2fe;
+  border-left: 6px solid #38bdf8;
+  padding: 14px;
+  border-radius: 14px;
+  margin-bottom: 16px;
+  max-width: 75%;
+  animation: fadeInUp 0.3s ease;
+}
+
+.user {
+  background: #c7d2fe;
+  border-right: 6px solid #6366f1;
+  padding: 14px;
+  border-radius: 14px;
+  margin-bottom: 16px;
+  margin-left: auto;
+  max-width: 75%;
+  text-align: right;
+  animation: fadeInUp 0.3s ease;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ================= FOOTER ================= */
+.footer input {
+  width: 100%;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #e0f2fe;
+  text-align: center;
+  font-weight: 500;
+}
+
+/* ================= LOADING OVERLAY ================= */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(248,250,252,0.94);
+  backdrop-filter: blur(6px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.loading-box {
+  text-align: center;
+}
+
+.spinner {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 6px solid #c7d2fe;
+  border-top-color: #4f46e5;
+  animation: spin 1s linear infinite;
+  margin: auto;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  margin-top: 16px;
+  font-size: 15px;
+  color: #475569;
+  letter-spacing: 0.3px;
+}
+
+
+.controls {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.controls.hidden {
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+}
+
+#backBtn {
+  padding: 10px 20px;
+  font-size: 14px;
+  border-radius: 10px;
+  border: none;
+  background: #e0e7ff;
+  color: #1e3a8a;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+  transition: all 0.2s ease;
+}
+
+#backBtn:hover {
+  background: #c7d2fe;
+  transform: translateY(-1px);
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+  {% comment %} <h2 style="text-align:center;">🤖 AI Industry Demo</h2> {% endcomment %}
+
+    <div class="hero">
+        <div class="ai-orb"></div>
+        <h2 class="hero-title">AI Voice Demo</h2>
+        <div class="hero-sub">
+            Voice AI agents for real-world workflows
+        </div>
+    </div>
+  
+  <div class="controls" id="controls">
+    <select id="industry"></select>
+    <select id="role"></select>
+    <button onclick="startChat()">Start</button>
+  </div>
+
+  <div class="card" id="chatCard" style="display:none;">
+    <div class="chat" id="chat"></div>
+    <div class="footer">
+      <input id="status" placeholder="🎤" disabled />
+    </div>
+  </div>
+
+  <!-- 🔙 Back Button -->
+    <div id="backWrapper" style="display:none; text-align:center; margin-top:16px;">
+        <button id="backBtn" onclick="goBack()">⬅ Back</button>
+    </div>
+
+</div>
+
+<!-- 🔄 LOADING -->
+<div id="loadingOverlay" class="loading-overlay">
+  <div class="loading-box">
+    <div class="spinner"></div>
+    <div class="loading-text">Starting assistant…</div>
+  </div>
+</div>
+
+<script>
+/* ================= CONFIG ================= */
+const CHAT_API = "/api/demo/chat/";
+const INDUSTRY_API = "/api/agents/industries/";
+const ROLE_API = "/api/agents/roles/";
+
+// ✅ ACTIVE ROLES (can grow anytime)
+const ACTIVE_ROLE_IDS = ["1","2","22"]; 
+// Appointment Scheduler, Doctor Booking, Lab Reports (example)
+
+/* ================= STATE ================= */
+let selectedIndustry = null;
+let selectedRole = null;
+let sessionId = null;
+
+let recognition = null;
+let micActive = false;
+let botSpeaking = false;
+
+let silenceTimer = null;
+let speechBuffer = "";
+
+const USER_LONG_SILENCE_LIMIT = 1000;
+
+/* ================= DOM ================= */
+const chat = document.getElementById("chat");
+const statusInput = document.getElementById("status");
+const loadingOverlay = document.getElementById("loadingOverlay");
+
+/* ================= LOADING ================= */
+function showLoading() {
+  loadingOverlay.style.display = "flex";
+}
+
+function hideLoading() {
+  loadingOverlay.style.display = "none";
+}
+
+/* ================= UI ================= */
+function addBot(text) {
+  if (!text) return;
+  chat.innerHTML += `<div class="bot">${text}</div>`;
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function addUser(text) {
+  if (!text) return;
+  let last = chat.querySelector(".user:last-child");
+  if (last) last.innerText = text;
+  else chat.innerHTML += `<div class="user">${text}</div>`;
+  chat.scrollTop = chat.scrollHeight;
+}
+
+/* ================= LOAD DROPDOWNS ================= */
+async function loadIndustries() {
+  const r = await fetch(INDUSTRY_API);
+  const d = await r.json();
+  industry.innerHTML = d.map(i => `<option value="${i.id}">${i.name}</option>`).join("");
+  selectedIndustry = industry.value;
+  loadRoles();
+}
+
+async function loadRoles() {
+  const r = await fetch(`${ROLE_API}${selectedIndustry}/`);
+  const d = await r.json();
+  role.innerHTML = d.map(r => `<option value="${r.id}">${r.role_name}</option>`).join("");
+  selectedRole = role.value;
+}
+
+industry.onchange = e => { selectedIndustry = e.target.value; loadRoles(); };
+role.onchange = e => selectedRole = e.target.value;
+
+/* ================= MIC ================= */
+function initMic() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return alert("Speech recognition not supported");
+
+  recognition = new SR();
+  recognition.lang = "en-IN";
+  recognition.continuous = false;
+  recognition.interimResults = false;
+
+  recognition.onstart = () => {
+    if (botSpeaking) return stopMic();
+    micActive = true;
+    statusInput.value = "🎤 Listening…";
+  };
+
+  recognition.onresult = e => {
+    const text = e.results[0][0].transcript.trim();
+    if (!text) return;
+
+    speechBuffer += (speechBuffer ? " " : "") + text;
+    addUser(speechBuffer);
+
+    clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(finalizeUserSpeech, USER_LONG_SILENCE_LIMIT);
+  };
+
+  recognition.onend = () => {
+    if (micActive && !botSpeaking) {
+      try { recognition.start(); } catch {}
+    }
+  };
+}
+
+function startMic() {
+  if (botSpeaking) return;
+  if (!recognition) initMic();
+  micActive = true;
+  speechBuffer = "";
+  try { recognition.start(); } catch {}
+}
+
+function stopMic() {
+  micActive = false;
+  if (recognition) {
+    try { recognition.stop(); } catch {}
+  }
+}
+
+/* ================= BOT AUDIO ================= */
+function playAudio(base64) {
+  stopMic();
+  botSpeaking = true;
+  statusInput.value = "🗣️ Speaking…";
+
+  if (!base64) {
+    botSpeaking = false;
+    startMic();
+    return;
+  }
+
+  const audio = new Audio("data:audio/wav;base64," + base64);
+
+  audio.onended = () => {
+    botSpeaking = false;
+    statusInput.value = "🎤 Listening…";
+    startMic();
+  };
+
+  audio.play().catch(() => {
+    botSpeaking = false;
+    startMic();
+  });
+}
+
+/* ================= FINALIZE USER ================= */
+function finalizeUserSpeech() {
+  stopMic();
+  const text = speechBuffer.trim();
+  speechBuffer = "";
+  if (!text) return;
+  sendUserMessage(text);
+}
+
+/* ================= SEND USER ================= */
+async function sendUserMessage(text) {
+  const r = await fetch(CHAT_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      industry_id: selectedIndustry,
+      role_id: selectedRole,
+      message: text,
+      session_id: sessionId
+    })
+  });
+
+  const d = await r.json();
+  sessionId = d.session_id;
+
+  addBot(d.reply);
+  playAudio(d.audio);
+}
+
+/* ================= START CHAT ================= */
+async function startChat() {
+
+
+    // ❌ BLOCK unavailable roles
+  if (!ACTIVE_ROLE_IDS.includes(selectedRole)) {
+    showComingSoon();
+    return;
+  }
+
+    // 🔥 HIDE DROPDOWNS + START BUTTON
+  document.getElementById("controls").style.display = "none";
+  document.getElementById("backWrapper").style.display = "block";
+
+  document.getElementById("chatCard").style.display = "block";
+  chat.innerHTML = "";
+  sessionId = null;
+
+  stopMic();
+  botSpeaking = true;
+
+  showLoading();   // 🔥 IMMEDIATE FEEDBACK
+
+  try {
+    const r = await fetch(CHAT_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        industry_id: selectedIndustry,
+        role_id: selectedRole,
+        message: "",
+        session_id: null
+      })
+    });
+
+    const d = await r.json();
+    sessionId = d.session_id;
+
+    hideLoading(); // 🔥 hide only when ready
+
+    addBot(d.reply);
+    playAudio(d.audio);
+
+  } catch (e) {
+    hideLoading();
+    statusInput.value = "❌ Failed to start";
+    botSpeaking = false;
+  }
+}
+
+function showComingSoon() {
+  document.getElementById("chatCard").style.display = "block";
+  chat.innerHTML = `
+    <div class="bot">
+      🚧 This service is coming soon.<br>
+      Please try another available option.
+    </div>
+  `;
+  statusInput.value = "Unavailable";
+}
+
+function goBack() {
+  window.location.href = "/";
+}
+
+/* INIT */
+loadIndustries();
 </script>
 
 </body>

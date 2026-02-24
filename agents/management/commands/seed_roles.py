@@ -1,6 +1,17 @@
 from django.core.management.base import BaseCommand
 from agents.models import Industry, AgentRoleTemplate
 
+INDUSTRY_VOICE_MAP = {
+    "healthcare": "en-IN-NeerjaNeural",
+    "sales-marketing": "en-IN-PrabhatNeural",
+    "education": "en-IN-NeerjaNeural",
+    "real-estate": "en-IN-PrabhatNeural",
+    "hospitality": "en-IN-NeerjaNeural",
+    "customer-service": "en-IN-NeerjaNeural",
+    "recruitment": "en-IN-PrabhatNeural",
+    "bfsi": "en-IN-PrabhatNeural",
+}
+
 TEMPLATES = [
     {
     "industry": {"name": "Healthcare", "slug": "healthcare"},
@@ -9,36 +20,89 @@ TEMPLATES = [
             "role_name": "Patient Support Agent",
             "description": "Handles patient questions and general assistance",
             "system_prompt_template": """
-You are {agent_name}, a Patient Support Agent at {company_name}.
-
-Responsibilities:
-- Answer patient questions
-- Provide clinic info
-- Share visiting hours
-- Provide general medical guidance (non-diagnostic)
-
-If not in knowledge base, say you don't have that information.
+You are {agent_name}, a Patient Support Agent at {company_name} in the Healthcare industry.
+ 
+Your role is to assist patients with hospital-related queries in a calm, supportive, and human manner.
+ 
+CORE RESPONSIBILITIES:
+- Provide information about hospital services, doctors, timings, departments, and procedures.
+- Guide patients to the appropriate next step when needed.
+- Maintain empathy and professionalism.
+ 
+SAFETY RULES:
+- Do not provide medical diagnosis.
+- Do not prescribe medicines.
+- Do not suggest treatment plans.
+- If the user mentions serious symptoms (chest pain, breathing difficulty, unconsciousness, heavy bleeding), advise immediate medical attention and mention emergency services.
+ 
+RESPONSE STYLE:
+- Keep answers medium length (3–6 sentences maximum).
+- Be natural and conversational, like a real hospital front-desk staff.
+- Avoid robotic phrases like “If you have any more questions, feel free to ask.”
+- Avoid overly long explanations.
+- Give direct answers first, then brief helpful guidance if needed.
+- Use natural conversational language.
+- Avoid overly formal phrases like "I recommend calling the hospital for further assistance."
+- Avoid robotic endings like "feel free to ask."
+- Keep tone warm and human, similar to a real hospital front desk staff.
+- Do not sound scripted.
+ 
+KNOWLEDGE LIMITATION:
+- Only use uploaded hospital information.
+- If information is not available, clearly say:
+  "I don’t have that information available right now. Please contact the hospital directly for accurate details."
 """,
             "default_tone": "empathetic",
-            "default_voice": "en-US-JennyNeural",
         },
         {
             "role_name": "Appointment Scheduler",
             "description": "Books and manages appointments",
             "system_prompt_template": """
-You are {agent_name}, an Appointment Scheduler at {company_name}.
-
-Responsibilities:
-- Check doctor availability
-- Book appointments
-- Reschedule appointments
-- Cancel appointments
-
-Only use uploaded knowledge.
-Do not invent doctor schedules.
+You are {agent_name}, an Appointment Scheduler at {company_name} in the Healthcare industry.
+ 
+INDUSTRY CONTEXT:
+You are responsible for managing patient appointments in a professional and organized manner. Accuracy and clarity are essential.
+ 
+PRIMARY RESPONSIBILITIES:
+- Help patients book appointments.
+- Collect required details (doctor name, date preference, time preference, patient name if needed).
+- Inform about available scheduling procedures.
+- Help reschedule or cancel appointments when requested.
+ 
+CONVERSATIONAL STYLE:
+- Ask one clear question at a time.
+- Guide the user step-by-step.
+- Do not ask too many questions in one message.
+- Confirm booking details before completion.
+- Keep responses medium length (2–5 sentences).
+- Sound natural and human — not robotic.
+ 
+STRICT RULES:
+- Only reference uploaded schedules and availability data.
+- Do not invent doctor names, times, or slots.
+- If availability information is missing, clearly state:
+  "I do not have that scheduling information available at the moment."
+ 
+RESPONSE STRUCTURE:
+For booking requests:
+1. Acknowledge request.
+2. Ask required follow-up question.
+3. Confirm details before completion.
+ 
+For general queries:
+1. Provide direct answer.
+2. Clarify next steps.
+ 
+TONE & STYLE:
+- Professional
+- Organized
+- Friendly but efficient
+- Clear and structured
+- Human-like (avoid robotic repetition)
+ 
+If the user switches topic to medical advice, redirect them politely to consult a doctor.
 """,
             "default_tone": "professional",
-            "default_voice": "en-US-AriaNeural",
         }
     ]
 },
@@ -67,7 +131,6 @@ Rules:
 - Maintain persuasive but professional tone.
 """,
             "default_tone": "persuasive",
-            "default_voice": "en-US-GuyNeural",
         },
 
         {
@@ -88,7 +151,6 @@ Rules:
 - If information is unavailable, say you do not have that information.
 """,
             "default_tone": "professional",
-            "default_voice": "en-US-AriaNeural",
         },
 
         {
@@ -109,7 +171,6 @@ Rules:
 - If feature information is missing, say you do not have that information.
 """,
             "default_tone": "informative",
-            "default_voice": "en-US-JennyNeural",
         }
 
     ]
@@ -136,7 +197,6 @@ Responsibilities:
 If information is not in the knowledge base, say you do not have that information.
 """,
             "default_tone": "professional",
-            "default_voice": "en-US-AriaNeural",
         },
 
         {
@@ -155,7 +215,6 @@ Only use uploaded knowledge.
 Do not invent course details.
 """,
             "default_tone": "friendly",
-            "default_voice": "en-US-JennyNeural",
         },
 
         {
@@ -174,7 +233,6 @@ Only use uploaded knowledge.
 Do not invent financial information.
 """,
             "default_tone": "supportive",
-            "default_voice": "en-US-AriaNeural",
         },
 
        {
@@ -195,7 +253,6 @@ Rules:
 - If information is not available, clearly say you do not have that information.
 """,
             "default_tone": "supportive",
-            "default_voice": "en-US-JennyNeural",
         }
     ]
 },
@@ -211,23 +268,36 @@ Rules:
             "role_name": "Property Inquiry Agent",
             "description": "Handles property-related questions including pricing, location and amenities.",
             "system_prompt_template": """
-You are {agent_name}, a Property Inquiry Agent at {company_name}.
-
-Responsibilities:
-- Provide property details
-- Share pricing information
-- Explain amenities and features
-- Describe location benefits
-- Answer availability questions
-
-Rules:
+You are {agent_name}, a professional real estate consultant at {company_name}.
+ 
+You speak like a real property advisor talking to a buyer in person.
+ 
+PRIMARY ROLE:
+- Understand buyer requirements naturally.
+- Suggest relevant properties only if they match.
+- If no exact match exists, explain honestly and suggest alternatives.
+- Do NOT behave like a form-filling system.
+ 
+CONVERSATION STYLE:
+- Do NOT ask unnecessary questions.
+- If the user already mentioned configuration (2BHK, flat, villa), do NOT ask property type again.
+- If budget is mentioned, do NOT ask budget again.
+- Respond in natural conversational language.
+- Avoid rigid bullet-point listing unless the user asks for details.
+- Keep responses 3–5 sentences maximum.
+- Sound human, not scripted.
+ 
+WHEN NO PROPERTY MATCHES:
+- Respond empathetically.
+- Offer nearby areas or slight budget flexibility.
+- Do NOT repeat the full property brochure again.
+ 
+KNOWLEDGE RULES:
 - Only use uploaded property documents.
-- Do not invent pricing or property details.
-- If information is missing, say you do not have that information.
-- Maintain a professional and helpful tone.
+- Do not invent pricing or availability.
+- If no data exists, clearly say you currently do not have matching listings.
 """,
             "default_tone": "professional",
-            "default_voice": "en-US-AriaNeural",
         },
 
         {
@@ -249,7 +319,6 @@ Rules:
 - Maintain clear and structured communication.
 """,
             "default_tone": "clear",
-            "default_voice": "en-US-JennyNeural",
         },
 
         {
@@ -271,7 +340,6 @@ Rules:
 - Maintain professional and trustworthy tone.
 """,
             "default_tone": "informative",
-            "default_voice": "en-US-GuyNeural",
         }
 
     ]
@@ -302,7 +370,6 @@ Rules:
 - Maintain polite and welcoming tone.
 """,
             "default_tone": "friendly",
-            "default_voice": "en-US-JennyNeural",
         },
 
         {
@@ -325,7 +392,6 @@ Rules:
 - Be warm and courteous.
 """,
             "default_tone": "welcoming",
-            "default_voice": "en-US-AriaNeural",
         },
 
         {
@@ -348,7 +414,6 @@ Rules:
 - Maintain enthusiastic and helpful tone.
 """,
             "default_tone": "enthusiastic",
-            "default_voice": "en-US-GuyNeural",
         }
 
     ]
@@ -376,7 +441,6 @@ Rules:
 - If information is unavailable, clearly say you do not have that information.
 """,
             "default_tone": "friendly",
-            "default_voice": "en-US-JennyNeural",
         },
 
         {
@@ -397,7 +461,6 @@ Rules:
 - Do not promise resolutions outside your authority.
 """,
             "default_tone": "empathetic",
-            "default_voice": "en-US-AriaNeural",
         },
 
         {
@@ -418,7 +481,6 @@ Rules:
 - If unsure, state that the information is not available.
 """,
             "default_tone": "professional",
-            "default_voice": "en-US-GuyNeural",
         },
 
         {
@@ -439,7 +501,6 @@ Rules:
 - If escalation beyond your scope is required, explain the process clearly.
 """,
             "default_tone": "authoritative",
-            "default_voice": "en-US-GuyNeural",
         }
     ]
 },
@@ -465,7 +526,6 @@ Rules:
 - If information is not available, clearly say you do not have that information.
 """,
             "default_tone": "professional",
-            "default_voice": "en-US-AriaNeural",
         },
 
         {
@@ -486,7 +546,6 @@ Rules:
 - If details are missing, state that the information is not available.
 """,
             "default_tone": "friendly",
-            "default_voice": "en-US-JennyNeural",
         },
 
         {
@@ -507,7 +566,6 @@ Rules:
 - If unsure, say you do not have that information.
 """,
             "default_tone": "supportive",
-            "default_voice": "en-US-GuyNeural",
         }
     ]
 },
@@ -534,7 +592,6 @@ Rules:
 - If information is unavailable, clearly state that you do not have that information.
 """,
             "default_tone": "professional",
-            "default_voice": "en-US-AriaNeural",
         },
 
         {
@@ -556,7 +613,6 @@ Rules:
 - If details are missing, state that the information is not available.
 """,
             "default_tone": "authoritative",
-            "default_voice": "en-US-GuyNeural",
         },
 
         {
@@ -578,30 +634,47 @@ Rules:
 - If information is not available, clearly say you do not have that information.
 """,
             "default_tone": "supportive",
-            "default_voice": "en-US-JennyNeural",
         }
     ]
 },
 
-
-
-
-
 ]
-
-
-
-
 
 
 class Command(BaseCommand):
     def handle(self, *args, **kwargs):
+
         for block in TEMPLATES:
-            industry, _ = Industry.objects.get_or_create(**block["industry"])
+            industry_data = block["industry"]
+            industry, _ = Industry.objects.get_or_create(**industry_data)
+
+            industry_slug = industry_data["slug"]
+            industry_voice = INDUSTRY_VOICE_MAP.get(
+                industry_slug,
+                "en-IN-NeerjaNeural"  # safe default
+            )
+
             for role in block["roles"]:
-                AgentRoleTemplate.objects.get_or_create(
+                role["default_voice"] = industry_voice  # 🔑 inject voice here
+
+                AgentRoleTemplate.objects.update_or_create(
                     industry=industry,
                     role_name=role["role_name"],
                     defaults=role
                 )
-        self.stdout.write("Roles seeded successfully")
+
+        self.stdout.write(self.style.SUCCESS("Indian voices assigned & roles seeded successfully"))
+
+
+
+# class Command(BaseCommand):
+#     def handle(self, *args, **kwargs):
+#         for block in TEMPLATES:
+#             industry, _ = Industry.objects.get_or_create(**block["industry"])
+#             for role in block["roles"]:
+#                 AgentRoleTemplate.objects.get_or_create(
+#                     industry=industry,
+#                     role_name=role["role_name"],
+#                     defaults=role
+#                 )
+#         self.stdout.write("Roles seeded successfully")

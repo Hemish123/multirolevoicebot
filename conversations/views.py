@@ -145,18 +145,17 @@
 
 
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from agents.models import VoiceAgent
-from conversations.services.core.dialogue_engine import process_message
-from rest_framework.permissions import AllowAny
-from django.shortcuts import render
+# from rest_framework.views import APIView
+# from rest_framework.response import Response
+# from agents.models import VoiceAgent
+# from conversations.services.core.dialogue_engine import process_message
+# from rest_framework.permissions import AllowAny
+# from django.shortcuts import render
 
 
 
-def demo_page(request):
-    return render(request, "demo_chat.html")
-
+# def demo_page(request):
+#     return render(request, "demo_chat.html")
 
 
 # class ChatAPIView(APIView):
@@ -179,15 +178,118 @@ def demo_page(request):
 #         if not message:
 #             return Response({"error": "Message required"}, status=400)
 
-#         reply = process_message(agent, message)
+#         # 🔹 Get session_id from request (if continuing conversation)
+#         session_id = request.data.get("session_id")
+
+#         # 🔹 Call conversation engine
+#         reply, session_id = process_message(
+#             agent=agent,
+#             message=message,
+#             session_id=session_id
+#         )
 
 #         return Response({
 #             "agent": agent.name,
-#             "reply": reply
+#             "reply": reply,
+#             "session_id": session_id
+#         })
+    
+
+
+# class BotListAPIView(APIView):
+#     authentication_classes = []
+#     permission_classes = []
+
+#     def get(self, request):
+#         bots = VoiceAgent.objects.filter(
+#             is_active=True
+#         ).select_related("industry", "role_template")
+
+#         data = []
+
+#         for bot in bots:
+#             data.append({
+#                 "id": bot.id,
+#                 "name": bot.name,
+#                 "industry": bot.industry.name,
+#                 "role": bot.role_template.role_name if bot.role_template else None,
+#                 "company_name": bot.company_name,
+#             })
+
+#         return Response({"bots": data})
+
+
+# class DemoChatAPIView(APIView):
+#     permission_classes = [AllowAny]
+#     authentication_classes = []
+
+#     def post(self, request):
+#         industry_id = request.data.get("industry_id")
+#         role_id = request.data.get("role_id")
+#         message = request.data.get("message")
+#         session_id = request.data.get("session_id")
+
+#         if not all([industry_id, role_id, message]):
+#             return Response(
+#                 {"error": "industry_id, role_id and message are required"},
+#                 status=400
+#             )
+
+#         # 🔎 Resolve Demo Bot Internally
+#         bot = VoiceAgent.objects.filter(
+#             industry_id=industry_id,
+#             role_template_id=role_id,
+#             is_demo=True,
+#             is_active=True
+#         ).first()
+
+#         if not bot:
+#             return Response(
+#                 {"error": "No demo bot found for selected role"},
+#                 status=404
+#             )
+
+#         # 🧠 Call existing conversation engine
+#         reply, session_id = process_message(
+#             agent=bot,
+#             message=message,
+#             session_id=session_id
+#         )
+
+#         return Response({
+#             "reply": reply,
+#             "session_id": session_id
 #         })
 
 
 
+
+
+
+
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
+
+from django.shortcuts import render
+
+from agents.models import VoiceAgent
+from conversations.services.core.dialogue_engine import process_message
+from assistant.management.commands.tts import synthesize_to_base64
+
+
+# ======================================================
+# DEMO PAGE
+# ======================================================
+
+def demo_page(request):
+    return render(request, "demo_chat.html")
+
+
+# ======================================================
+# AUTHENTICATED AGENT CHAT (UNCHANGED)
+# ======================================================
 
 class ChatAPIView(APIView):
     authentication_classes = []
@@ -209,10 +311,8 @@ class ChatAPIView(APIView):
         if not message:
             return Response({"error": "Message required"}, status=400)
 
-        # 🔹 Get session_id from request (if continuing conversation)
         session_id = request.data.get("session_id")
 
-        # 🔹 Call conversation engine
         reply, session_id = process_message(
             agent=agent,
             message=message,
@@ -224,8 +324,11 @@ class ChatAPIView(APIView):
             "reply": reply,
             "session_id": session_id
         })
-    
 
+
+# ======================================================
+# BOT LIST (UNCHANGED)
+# ======================================================
 
 class BotListAPIView(APIView):
     authentication_classes = []
@@ -250,6 +353,10 @@ class BotListAPIView(APIView):
         return Response({"bots": data})
 
 
+# ======================================================
+# DEMO CHAT (FIXED + AZURE TTS)
+# ======================================================
+
 class DemoChatAPIView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -260,13 +367,13 @@ class DemoChatAPIView(APIView):
         message = request.data.get("message")
         session_id = request.data.get("session_id")
 
-        if not all([industry_id, role_id, message]):
+        if not industry_id or not role_id:
             return Response(
-                {"error": "industry_id, role_id and message are required"},
+                {"error": "industry_id and role_id are required"},
                 status=400
             )
 
-        # 🔎 Resolve Demo Bot Internally
+        # 🔎 Resolve demo bot
         bot = VoiceAgent.objects.filter(
             industry_id=industry_id,
             role_template_id=role_id,
@@ -280,14 +387,49 @@ class DemoChatAPIView(APIView):
                 status=404
             )
 
-        # 🧠 Call existing conversation engine
-        reply, session_id = process_message(
-            agent=bot,
-            message=message,
-            session_id=session_id
+        # ==================================================
+        # 🟢 START CONVERSATION (BOT GREETS FIRST)
+        # ==================================================
+        if not session_id:
+            # 🔑 IMPORTANT: NEVER SEND None
+            start_message = "start conversation"
+
+            reply, session_id = process_message(
+                agent=bot,
+                message=start_message,
+                session_id=None
+            )
+
+        # ==================================================
+        # 🔵 CONTINUE CONVERSATION
+        # ==================================================
+        else:
+            if not message:
+                return Response(
+                    {"error": "message is required"},
+                    status=400
+                )
+
+            reply, session_id = process_message(
+                agent=bot,
+                message=message,
+                session_id=session_id
+            )
+
+        # ==================================================
+        # 🔊 AZURE TTS
+        # ==================================================
+        voice_name = (
+            bot.role_template.default_voice
+            if bot.role_template and bot.role_template.default_voice
+            else "en-IN-NeerjaNeural"
         )
+
+        audio = synthesize_to_base64(reply)
 
         return Response({
             "reply": reply,
+            "audio": audio,
+            "voice": voice_name,
             "session_id": session_id
         })

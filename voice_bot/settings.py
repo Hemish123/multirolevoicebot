@@ -49,6 +49,7 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5174",
+    "multivoicebot-d3eyanb4h2g4crhh.centralindia-01.azurewebsites.net",
 ]
 # Application definition
 
@@ -66,7 +67,6 @@ INSTALLED_APPS = [
     "agents",
     "knowledge",
     "conversations",
-    "voice",
     "assistant",
     "accounts",
     "rest_framework",
