@@ -40,6 +40,13 @@ DEBUG = False
 
 ALLOWED_HOSTS = ["*","multivoicebot-d3eyanb4h2g4crhh.centralindia-01.azurewebsites.net"]
 
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://multivoicebot-d3eyanb4h2g4crhh.centralindia-01.azurewebsites.net"
+]
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 CORS_ALLOW_METHODS = ['GET', 'POST', 'OPTIONS']
 
 CORS_ALLOW_HEADERS = list(default_headers) + [
@@ -200,3 +207,5 @@ if not DEBUG:
             },
         },
     }
+
+
