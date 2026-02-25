@@ -121,12 +121,52 @@ WSGI_APPLICATION = 'voice_bot.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# =========================
+# DATABASE CONFIGURATION
+# Local SQLite + Azure PostgreSQL
+# =========================
+
+if DEBUG:
+
+    # 🔹 LOCAL DATABASE
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
+
+    MEDIA_URL = '/media/'
+    MEDIA_ROOT = BASE_DIR / 'media'
+
+
+else:
+
+    # 🔹 AZURE POSTGRESQL DATABASE
+
+    CONNECTION_STRING = os.environ.get('AZURE_POSTGRESQL_CONNECTIONSTRING')
+
+    conn_str_params = dict(
+        pair.split('=', 1) for pair in CONNECTION_STRING.split(' ')
+    )
+
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': conn_str_params.get('dbname'),
+            'HOST': conn_str_params.get('host'),
+            'USER': conn_str_params.get('user'),
+            'PASSWORD': conn_str_params.get('password'),
+            'PORT': conn_str_params.get('port', '5432'),
+
+            'OPTIONS': {
+                'sslmode': 'require',
+            },
+        }
+    }
+
+    MEDIA_URL = '/media/'
+    MEDIA_ROOT = BASE_DIR / 'media'
 
 
 # Password validation
