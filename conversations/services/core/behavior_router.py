@@ -17,6 +17,8 @@ ROLE_STRATEGY_MAP = {
     #Education
     "Admission Counselor": "information",
     "Course Advisor": "education_qualification",
+    "Scholarship Advisor": "education_scholarship",
+    "Student Help Desk": "education_support",
 
     # Qualification Roles
     "Sales Executive": "qualification",

@@ -302,9 +302,6 @@
 
 
 
-
-
-
 from knowledge.services.retriever import retrieve_relevant_chunks
 from conversations.services.azure_openai_service import generate_response
 from conversations.services.core.intent_classifier import classify_intent
@@ -319,6 +316,8 @@ from conversations.services.core.strategies import (
     support_strategy,
     site_visit_transaction_strategy,
     loan_financial_strategy,
+    education_scholarship_strategy,
+    education_support_strategy,
 )
  
  
@@ -356,13 +355,8 @@ def process_message(agent, message, session_id=None):
         session.save()
         return reply, session_id
  
-    # if intent == "emergency":
-    #     reply = "If this is an emergency, please contact local emergency services immediately."
-    #     session.stage = "emergency"
-    #     session.save()
-    #     return reply, session_id
-   
- 
+
+
     role_name = agent.role_template.role_name
     strategy_type = get_role_strategy(role_name)
 
@@ -438,8 +432,27 @@ def process_message(agent, message, session_id=None):
         reply = qualification_strategy(agent, message, session)
 
     elif strategy_type == "education_qualification":
-        reply = education_qualification_strategy(agent, message, session)
 
+    # If already in qualification flow → continue
+        if session.state.get("interest") or session.state.get("background"):
+            reply = education_qualification_strategy(agent, message, session)
+
+        # If user clearly expressing career intent → start qualification
+        elif intent in ["general_query", "information_request"] and any(
+            word in message.lower() for word in ["career", "become", "interested", "want to"]
+        ):
+            reply = education_qualification_strategy(agent, message, session)
+
+        # Otherwise → treat as normal information
+        else:
+            reply = information_strategy(agent, message, session)
+
+
+    elif strategy_type == "education_scholarship":
+        reply = education_scholarship_strategy(agent, message, session)
+
+    elif strategy_type == "education_support":
+        reply = education_support_strategy(agent, message, session)
 
     elif strategy_type == "information":
         reply = information_strategy(agent, message, session)
@@ -453,16 +466,6 @@ def process_message(agent, message, session_id=None):
 
         msg = message.lower()
 
-        # # 🔹 Only trigger site visit transaction explicitly
-        # if any(phrase in msg for phrase in [
-        #     "schedule site visit",
-        #     "book site visit",
-        #     "visit the property",
-        #     "arrange visit"
-        # ]):
-        #     reply = transaction_strategy(agent, message, session)
-
-        # 🔹 Buying / searching flow
         if any(word in msg for word in [
             "2bhk", "3bhk", "villa", "flat", "apartment",
             "budget", "lakh", "cr", "property", "looking"
@@ -474,45 +477,5 @@ def process_message(agent, message, session_id=None):
             reply = information_strategy(agent, message, session)
  
     
-    # formatted_reply = ResponseFormatter.format(
-    #     reply,
-    #     strategy_type=strategy_type,
-    #     intent=intent,
-    #     agent_name=agent.name
-    #     )
 
     return reply, session_id
-
-#     # 4️⃣ Knowledge-Based Flow (RAG)
-#     context = retrieve_relevant_chunks(agent, message)
-
-#     if not context.strip():
-#         reply = "This information is not mentioned in the uploaded document."
-#         session.save()
-#         return reply, session_id
-
-#     # 5️⃣ Build Conversational Prompt
-#     system_prompt = f"""
-# {agent.resolved_prompt}
-
-# Detected Intent: {intent}
-
-# Conversation Stage: {session.stage or "new"}
-
-# Knowledge Context:
-# {context}
-
-# Rules:
-# - Respond conversationally like a human professional.
-# - Use only the knowledge context.
-# - If information is missing, say:
-#   "This information is not mentioned in the uploaded document."
-# - Do NOT hallucinate.
-# """
-
-#     reply = generate_response(system_prompt, message)
-
-#     session.stage = "active"
-#     session.save()
-
-#     return reply, session_id

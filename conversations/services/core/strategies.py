@@ -908,59 +908,299 @@ def education_qualification_strategy(agent, message, session):
     state = session.state or {}
     msg = message.lower()
 
-    # 🔹 If general information question → fallback
+    # 🔹 Fallback for direct info queries
     if any(word in msg for word in ["fee", "eligibility", "deadline", "document"]):
         return information_strategy(agent, message, session)
 
-    # 🔹 STEP 1 — Ask Interest Area
+    # 🔹 STEP 1 — Extract structured profile via AI (Fully dynamic)
+
+    extraction_prompt = f"""
+You are an academic advisor assistant.
+
+Extract structured student information from the message.
+
+Return JSON only:
+
+{{
+  "career_interest": "",
+  "education_level": ""
+}}
+
+Rules:
+- career_interest = desired career field
+- education_level = 12th | graduation | unknown
+- Do not explain.
+"""
+
+    profile_response = generate_response(extraction_prompt, message)
+
+    import json, re
+
+    try:
+        match = re.search(r"\{.*\}", profile_response, re.DOTALL)
+        profile = json.loads(match.group())
+    except:
+        profile = {
+            "career_interest": "",
+            "education_level": ""
+        }
+
+    # 🔹 Store extracted values
+    if profile.get("career_interest"):
+        state["interest"] = profile["career_interest"]
+
+    if profile.get("education_level"):
+        state["background"] = profile["education_level"]
+
+    session.state = state
+    session.save()
+
+    # 🔹 If no interest yet → ask
     if not state.get("interest"):
-        if session.stage == "collecting_interest":
-            state["interest"] = message.strip()
-            session.state = state
-            session.stage = "collecting_background"
-            session.save()
-            return "Thank you. May I know your highest qualification or current academic level?"
+        return "Which career field are you interested in?"
 
-        session.stage = "collecting_interest"
-        session.save()
-        return "Which field are you interested in? For example — IT, Business, Commerce?"
+    # 🔹 STEP 2 — CHECK PROGRAM EXISTENCE (Scope Awareness)
 
-    # 🔹 STEP 2 — Ask Academic Background
+    scope_query = f"Programs related to {state['interest']}"
+    scope_context = retrieve_relevant_chunks(agent, scope_query)
+
+    if not scope_context:
+        return (
+            "At the moment, we do not offer programs in that field. "
+            "Would you like to explore the courses currently available at our university?"
+        )
+
+    # 🔹 Ask background if missing
     if not state.get("background"):
-        if session.stage == "collecting_background":
-            state["background"] = message.strip()
-            session.state = state
-            session.stage = "suggesting"
-            session.save()
+        return "May I know your highest qualification — 12th or graduation?"
 
-            # Build suggestion query
-            query = f"{state['interest']} course suitable for {state['background']}"
-            context = retrieve_relevant_chunks(agent, query)
+    # 🔹 STEP 3 — Retrieve best matching course dynamically
 
-            if not context:
-                return "Based on your interest, I can suggest programs available. Would you like to explore undergraduate or postgraduate options?"
+    query = f"Best course for {state['interest']} after {state['background']}"
+    context = retrieve_relevant_chunks(agent, query)
 
-            system_prompt = f"""
+    if not context:
+        return (
+            "We offer programs in this area, but I’d like to guide you better. "
+            "Would you prefer undergraduate or postgraduate options?"
+        )
+
+    # 🔹 STEP 4 — Controlled AI Suggestion
+
+    system_prompt = f"""
 {agent.resolved_prompt}
 
-Student Interest: {state['interest']}
-Academic Background: {state['background']}
+Student Career Interest: {state['interest']}
+Student Education Level: {state['background']}
 
 Available Programs:
 {context}
 
-Respond:
-- Suggest 1 or 2 most relevant courses.
-- Briefly explain why suitable.
-- Keep response under 5 sentences.
-- Sound like an academic counselor.
+Instructions:
+- Suggest ONLY the most relevant program.
+- Maximum 3 sentences.
+- No marketing language.
+- No long explanation.
+- Sound like a professional academic counselor.
+- Do not invent programs outside context.
 """
 
-            return generate_response(system_prompt, message)
+    return generate_response(system_prompt, message)
 
-        session.stage = "collecting_background"
-        session.save()
-        return "Could you tell me your current qualification?"
 
-    # 🔹 After suggestion
-    return "Would you like details about fees, eligibility, or admission process?"
+
+def education_scholarship_strategy(agent, message, session):
+
+    # 🔹 STEP 1 — AI Scope Classification
+
+    scope_prompt = """
+You are a role boundary classifier.
+
+Role: Scholarship Advisor.
+
+Determine whether the user's message is related to ANY of the following:
+
+- scholarship schemes
+- fee waiver
+- financial aid
+- eligibility criteria
+- percentage-based benefits
+- income-based assistance
+- sports scholarship
+- scholarship application
+- scholarship deadline
+- scholarship verification process
+- approval timeline
+- result announcement
+
+If the message is about scholarship-related policy, process, deadline, approval, or eligibility → return "in_scope".
+
+If it is about courses, admissions, identity, hostel, placements, or general university information → return "out_of_scope".
+
+Return JSON only:
+{
+  "scope": "in_scope" or "out_of_scope"
+}
+"""
+
+    scope_response = generate_response(scope_prompt, message)
+
+    import json, re
+
+    try:
+        match = re.search(r"\{.*\}", scope_response, re.DOTALL)
+        scope_data = json.loads(match.group())
+        scope = scope_data.get("scope", "out_of_scope")
+    except:
+        scope = "out_of_scope"
+
+    # 🔹 STEP 2 — If Out of Scope → Respond Naturally via Role Prompt
+    if scope == "out_of_scope":
+
+        redirect_prompt = f"""
+{agent.resolved_prompt}
+
+The user question is outside scholarship scope.
+
+Respond professionally:
+- Clarify that you specialize in scholarships and financial aid.
+- Suggest contacting relevant advisor for other queries.
+- Maximum 2 sentences.
+"""
+
+        return generate_response(redirect_prompt, message)
+
+    # 🔹 STEP 3 — Extract Percentage (Fully AI)
+
+    extraction_prompt = """
+Extract percentage marks if mentioned.
+
+Return JSON:
+{
+  "percentage": ""
+}
+If not mentioned, return empty string.
+"""
+
+    profile_response = generate_response(extraction_prompt, message)
+
+    try:
+        match = re.search(r"\{.*\}", profile_response, re.DOTALL)
+        profile = json.loads(match.group())
+        percentage = profile.get("percentage", "")
+    except:
+        percentage = ""
+
+    # 🔹 STEP 4 — RAG Retrieval
+
+    if percentage:
+        query = f"Scholarship eligibility for {percentage}%"
+    else:
+        query = "Scholarship policy and eligibility details"
+
+    context = retrieve_relevant_chunks(agent, query)
+
+    if not context:
+        return "I currently do not have scholarship details available."
+
+    # 🔹 STEP 5 — Controlled Response Generation
+
+    system_prompt = f"""
+{agent.resolved_prompt}
+
+User Message: {message}
+
+Relevant Scholarship Policy:
+{context}
+
+Instructions:
+- Keep response under 3 sentences.
+- If percentage provided, evaluate eligibility clearly.
+- Do not guarantee approval.
+- Sound supportive and professional.
+"""
+
+    return generate_response(system_prompt, message)
+
+
+
+
+def education_support_strategy(agent, message, session):
+
+    # 🔹 STEP 1 — AI Scope Classification
+
+    scope_prompt = """
+You are a role boundary classifier.
+
+Role: Student Help Desk.
+
+Determine if the message relates to:
+- admission process
+- application steps
+- document submission
+- login or portal issues
+- payment issues
+- application status
+- technical support
+
+If yes → "in_scope"
+If about career advice, scholarships, or course selection → "out_of_scope"
+
+Return JSON:
+{
+  "scope": "in_scope" or "out_of_scope"
+}
+"""
+
+    scope_response = generate_response(scope_prompt, message)
+
+    import json, re
+    try:
+        match = re.search(r"\{.*\}", scope_response, re.DOTALL)
+        scope_data = json.loads(match.group())
+        scope = scope_data.get("scope", "out_of_scope")
+    except:
+        scope = "out_of_scope"
+
+    # 🔹 STEP 2 — Redirect if out of scope
+    if scope == "out_of_scope":
+
+        redirect_prompt = f"""
+{agent.resolved_prompt}
+
+The user message is outside your support role.
+
+Respond politely:
+- Clarify your role.
+- Suggest connecting with appropriate advisor.
+- Maximum 2 sentences.
+"""
+
+        return generate_response(redirect_prompt, message)
+
+    # 🔹 STEP 3 — Retrieve support information
+
+    context = retrieve_relevant_chunks(agent, message)
+
+    if not context:
+        return "I currently do not see specific details about that. Please contact the admissions office for further assistance."
+
+    system_prompt = f"""
+{agent.resolved_prompt}
+
+User Query:
+{message}
+
+Relevant Information:
+{context}
+
+Instructions:
+- Give a short and clear answer.
+- Maximum 2–3 sentences.
+- Keep response under 80 words.
+- Summarize steps instead of listing all in detail.
+- Sound natural and helpful.
+- Avoid numbered lists unless absolutely necessary.
+"""
+
+    return generate_response(system_prompt, message)
