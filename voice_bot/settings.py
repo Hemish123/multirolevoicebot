@@ -36,9 +36,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-*7s*aaz)wrq!lexszd)#u*k!f^uv^imr70+j)7rk-xhq8*l(5k'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = ["*","multivoicebot-d3eyanb4h2g4crhh.centralindia-01.azurewebsites.net"]
+
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://multivoicebot-d3eyanb4h2g4crhh.centralindia-01.azurewebsites.net"
+]
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 CORS_ALLOW_METHODS = ['GET', 'POST', 'OPTIONS']
 
@@ -48,7 +55,7 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
 ]
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
+    "http://localhost:5174",
     "https://multivoicebot-d3eyanb4h2g4crhh.centralindia-01.azurewebsites.net",
 ]
 # Application definition
@@ -114,12 +121,52 @@ WSGI_APPLICATION = 'voice_bot.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# =========================
+# DATABASE CONFIGURATION
+# Local SQLite + Azure PostgreSQL
+# =========================
+
+if DEBUG:
+
+    # 🔹 LOCAL DATABASE
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
+
+    MEDIA_URL = '/media/'
+    MEDIA_ROOT = BASE_DIR / 'media'
+
+
+else:
+
+    # 🔹 AZURE POSTGRESQL DATABASE
+
+    CONNECTION_STRING = os.environ.get('AZURE_POSTGRESQL_CONNECTIONSTRING')
+
+    conn_str_params = dict(
+        pair.split('=', 1) for pair in CONNECTION_STRING.split(' ')
+    )
+
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': conn_str_params.get('dbname'),
+            'HOST': conn_str_params.get('host'),
+            'USER': conn_str_params.get('user'),
+            'PASSWORD': conn_str_params.get('password'),
+            'PORT': conn_str_params.get('port', '5432'),
+
+            'OPTIONS': {
+                'sslmode': 'require',
+            },
+        }
+    }
+
+    MEDIA_URL = '/media/'
+    MEDIA_ROOT = BASE_DIR / 'media'
 
 
 # Password validation
@@ -152,6 +199,7 @@ USE_I18N = True
 
 USE_TZ = True
 
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
@@ -165,3 +213,40 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=3),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
 }
+
+# =========================
+# DJANGO ERROR LOG FILE (PRODUCTION)
+# Same as recruit_management project
+# =========================
+
+if not DEBUG:
+    LOGGING = {
+        'version': 1,
+        'disable_existing_loggers': False,
+
+        'formatters': {
+            'verbose': {
+                'format': '{levelname} {asctime} {module} {message}',
+                'style': '{',
+            },
+        },
+
+        'handlers': {
+            'file': {
+                'level': 'ERROR',
+                'class': 'logging.FileHandler',
+                'filename': '/home/site/wwwroot/django_errors.log',
+                'formatter': 'verbose',
+            },
+        },
+
+        'loggers': {
+            'django': {
+                'handlers': ['file'],
+                'level': 'ERROR',
+                'propagate': False,
+            },
+        },
+    }
+
+
