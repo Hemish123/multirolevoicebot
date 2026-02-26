@@ -268,6 +268,8 @@
 
 
 
+import tempfile
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
@@ -275,6 +277,7 @@ from rest_framework.permissions import AllowAny
 from django.shortcuts import render
 
 from agents.models import VoiceAgent
+from assistant.management.commands.stt import speech_to_text
 from conversations.services.core.dialogue_engine import process_message
 from assistant.management.commands.tts import synthesize_to_base64
 
@@ -357,6 +360,117 @@ class BotListAPIView(APIView):
 # DEMO CHAT (FIXED + AZURE TTS)
 # ======================================================
 
+# class DemoChatAPIView(APIView):
+#     permission_classes = [AllowAny]
+#     authentication_classes = []
+
+#     def post(self, request):
+#         industry_id = request.data.get("industry_id")
+#         role_id = request.data.get("role_id")
+#         message = request.data.get("message")
+#         session_id = request.data.get("session_id")
+
+#         if not industry_id or not role_id:
+#             return Response(
+#                 {"error": "industry_id and role_id are required"},
+#                 status=400
+#             )
+
+#         # 🔎 Resolve demo bot
+#         bot = VoiceAgent.objects.filter(
+#             industry_id=industry_id,
+#             role_template_id=role_id,
+#             is_demo=True,
+#             is_active=True
+#         ).first()
+
+#         if not bot:
+#             return Response(
+#                 {"error": "No demo bot found for selected role"},
+#                 status=404
+#             )
+
+#         # ==================================================
+#         # 🟢 START CONVERSATION (BOT GREETS FIRST)
+#         # ==================================================
+#         if not session_id:
+#             # 🔑 IMPORTANT: NEVER SEND None
+#             start_message = "start conversation"
+
+#             reply, session_id = process_message(
+#                 agent=bot,
+#                 message=start_message,
+#                 session_id=None
+#             )
+
+#         # ==================================================
+#         # 🔵 CONTINUE CONVERSATION
+#         # ==================================================
+#         else:
+#             if not message:
+#                 return Response(
+#                     {"error": "message is required"},
+#                     status=400
+#                 )
+
+#             reply, session_id = process_message(
+#                 agent=bot,
+#                 message=message,
+#                 session_id=session_id
+#             )
+
+#         # ==================================================
+#         # 🔊 AZURE TTS
+#         # ==================================================
+#         voice_name = (
+#             bot.role_template.default_voice
+#             if bot.role_template and bot.role_template.default_voice
+#             else "en-IN-NeerjaNeural"
+#         )
+
+#         audio = synthesize_to_base64(reply)
+
+#         return Response({
+#             "reply": reply,
+#             "audio": audio,
+#             "voice": voice_name,
+#             "session_id": session_id
+#         })
+
+
+
+
+# views.py
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
+import tempfile
+
+from agents.models import VoiceAgent
+from conversations.services.core.dialogue_engine import process_message
+
+
+import re
+
+def clean_for_tts(text: str) -> str:
+    if not text:
+        return ""
+
+    # Remove emojis
+    text = re.sub(r"[\U00010000-\U0010ffff]", "", text)
+
+    # Remove markdown **bold**
+    text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
+
+    # Remove remaining markdown symbols
+    text = re.sub(r"[*_`~>#]", "", text)
+
+    # Normalize spaces
+    text = re.sub(r"\s+", " ", text).strip()
+
+    return text
+
+
 class DemoChatAPIView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -364,16 +478,11 @@ class DemoChatAPIView(APIView):
     def post(self, request):
         industry_id = request.data.get("industry_id")
         role_id = request.data.get("role_id")
-        message = request.data.get("message")
         session_id = request.data.get("session_id")
 
         if not industry_id or not role_id:
-            return Response(
-                {"error": "industry_id and role_id are required"},
-                status=400
-            )
+            return Response({"error": "industry_id and role_id required"}, status=400)
 
-        # 🔎 Resolve demo bot
         bot = VoiceAgent.objects.filter(
             industry_id=industry_id,
             role_template_id=role_id,
@@ -382,54 +491,46 @@ class DemoChatAPIView(APIView):
         ).first()
 
         if not bot:
-            return Response(
-                {"error": "No demo bot found for selected role"},
-                status=404
-            )
+            return Response({"error": "No demo bot found"}, status=404)
 
-        # ==================================================
-        # 🟢 START CONVERSATION (BOT GREETS FIRST)
-        # ==================================================
-        if not session_id:
-            # 🔑 IMPORTANT: NEVER SEND None
-            start_message = "start conversation"
+        audio_file = request.FILES.get("audio")
+        message = request.data.get("message")
 
-            reply, session_id = process_message(
-                agent=bot,
-                message=start_message,
-                session_id=None
-            )
+        # 🎧 AUDIO → STT
+        if audio_file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as f:
+                for chunk in audio_file.chunks():
+                    f.write(chunk)
+                audio_path = f.name
 
-        # ==================================================
-        # 🔵 CONTINUE CONVERSATION
-        # ==================================================
-        else:
+            message = speech_to_text(audio_path)
+
             if not message:
-                return Response(
-                    {"error": "message is required"},
-                    status=400
-                )
+                fallback = "Sorry, I could not hear you clearly. Please try again."
+                return Response({
+                    "reply": fallback,
+                    "audio": synthesize_to_base64(fallback),
+                    "session_id": session_id
+                })
 
-            reply, session_id = process_message(
-                agent=bot,
-                message=message,
-                session_id=session_id
-            )
+        # 🟢 GREETING
+        if not session_id and not message:
+            message = "start conversation"
 
-        # ==================================================
-        # 🔊 AZURE TTS
-        # ==================================================
-        voice_name = (
-            bot.role_template.default_voice
-            if bot.role_template and bot.role_template.default_voice
-            else "en-IN-NeerjaNeural"
+        if not message:
+            return Response({"error": "message or audio required"}, status=400)
+
+        reply, session_id = process_message(
+            agent=bot,
+            message=message,
+            session_id=session_id
         )
 
-        audio = synthesize_to_base64(reply)
+        clean_reply = clean_for_tts(reply)
 
         return Response({
+            "user_text": message,
             "reply": reply,
-            "audio": audio,
-            "voice": voice_name,
+            "audio": synthesize_to_base64(clean_reply),
             "session_id": session_id
         })

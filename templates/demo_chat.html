@@ -403,145 +403,454 @@ loadIndustries();
 
 <style>
 /* ================= BASE ================= */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  min-height: 100vh;
+  font-family: 'Outfit', system-ui, sans-serif;
+  background: #fafbff;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #1e293b;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ================= LIVE ANIMATED BACKGROUND ================= */
+.bg-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Animated gradient mesh */
+.bg-canvas::before {
+  content: '';
+  position: absolute;
+  width: 200%;
+  height: 200%;
+  top: -50%;
+  left: -50%;
+  background:
+    radial-gradient(circle 600px at 20% 30%, rgba(139,92,246,0.07) 0%, transparent 60%),
+    radial-gradient(circle 500px at 75% 20%, rgba(59,130,246,0.06) 0%, transparent 50%),
+    radial-gradient(circle 400px at 50% 80%, rgba(236,72,153,0.05) 0%, transparent 50%),
+    radial-gradient(circle 350px at 85% 70%, rgba(14,165,233,0.06) 0%, transparent 50%);
+  animation: meshDrift 20s ease-in-out infinite alternate;
+}
+
+@keyframes meshDrift {
+  0%   { transform: translate(0, 0) rotate(0deg); }
+  33%  { transform: translate(-30px, 20px) rotate(1deg); }
+  66%  { transform: translate(20px, -15px) rotate(-1deg); }
+  100% { transform: translate(-10px, 25px) rotate(0.5deg); }
+}
+
+/* Floating particles */
+.particle {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0;
+  animation: particleFloat linear infinite;
+}
+
+.particle:nth-child(1) {
+  width: 6px; height: 6px;
+  background: rgba(139,92,246,0.25);
+  left: 10%; top: 20%;
+  animation-duration: 12s; animation-delay: 0s;
+}
+.particle:nth-child(2) {
+  width: 4px; height: 4px;
+  background: rgba(59,130,246,0.3);
+  left: 25%; top: 60%;
+  animation-duration: 15s; animation-delay: 2s;
+}
+.particle:nth-child(3) {
+  width: 8px; height: 8px;
+  background: rgba(236,72,153,0.15);
+  left: 70%; top: 15%;
+  animation-duration: 18s; animation-delay: 4s;
+}
+.particle:nth-child(4) {
+  width: 5px; height: 5px;
+  background: rgba(14,165,233,0.2);
+  left: 80%; top: 70%;
+  animation-duration: 14s; animation-delay: 1s;
+}
+.particle:nth-child(5) {
+  width: 7px; height: 7px;
+  background: rgba(139,92,246,0.18);
+  left: 45%; top: 85%;
+  animation-duration: 16s; animation-delay: 3s;
+}
+.particle:nth-child(6) {
+  width: 3px; height: 3px;
+  background: rgba(59,130,246,0.25);
+  left: 55%; top: 30%;
+  animation-duration: 13s; animation-delay: 5s;
+}
+.particle:nth-child(7) {
+  width: 6px; height: 6px;
+  background: rgba(236,72,153,0.12);
+  left: 15%; top: 45%;
+  animation-duration: 17s; animation-delay: 6s;
+}
+.particle:nth-child(8) {
+  width: 4px; height: 4px;
+  background: rgba(14,165,233,0.22);
+  left: 90%; top: 40%;
+  animation-duration: 11s; animation-delay: 1.5s;
+}
+
+@keyframes particleFloat {
+  0%   { opacity: 0; transform: translateY(0) scale(0.5); }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-100vh) scale(1.2); }
+}
+
+/* Soft glow rings */
+.glow-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid;
+  animation: ringPulse ease-in-out infinite;
+}
+
+.glow-ring:nth-child(9) {
+  width: 300px; height: 300px;
+  top: -100px; right: -80px;
+  border-color: rgba(139,92,246,0.08);
+  animation-duration: 6s;
+}
+.glow-ring:nth-child(10) {
+  width: 200px; height: 200px;
+  bottom: -60px; left: -50px;
+  border-color: rgba(59,130,246,0.08);
+  animation-duration: 8s; animation-delay: 2s;
+}
+.glow-ring:nth-child(11) {
+  width: 150px; height: 150px;
+  top: 40%; left: 60%;
+  border-color: rgba(236,72,153,0.06);
+  animation-duration: 7s; animation-delay: 1s;
+}
+
+@keyframes ringPulse {
+  0%, 100% { transform: scale(1); opacity: 0.4; }
+  50%      { transform: scale(1.15); opacity: 0.8; }
+}
+
+/* ================= CONTAINER ================= */
+.container {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 520px;
+  padding: 24px 16px;
+}
 
 /* ================= HERO ================= */
 .hero {
   text-align: center;
-  margin-bottom: 26px;
+  margin-bottom: 30px;
 }
 
 .ai-orb {
-  width: 72px;
-  height: 72px;
+  width: 56px;
+  height: 56px;
   margin: 0 auto 14px;
   border-radius: 50%;
-  background:
-    radial-gradient(circle at 30% 30%, #a5b4fc, #6366f1, #312e81);
+  background: linear-gradient(135deg, #8b5cf6, #3b82f6, #ec4899);
+  background-size: 200% 200%;
+  animation: orbGradient 4s ease-in-out infinite, orbPulse 2.5s ease-in-out infinite;
   box-shadow:
-    0 0 28px rgba(99,102,241,.6),
-    inset 0 0 18px rgba(255,255,255,.35);
-  animation: pulse 3s ease-in-out infinite;
+    0 6px 28px rgba(139,92,246,0.3),
+    0 0 0 6px rgba(139,92,246,0.08);
 }
 
-@keyframes pulse {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 28px rgba(99,102,241,.6); }
-  50% { transform: scale(1.05); box-shadow: 0 0 40px rgba(99,102,241,.9); }
+@keyframes orbGradient {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+@keyframes orbPulse {
+  0%, 100% { box-shadow: 0 6px 28px rgba(139,92,246,0.3), 0 0 0 6px rgba(139,92,246,0.08); transform: scale(1); }
+  50%      { box-shadow: 0 8px 36px rgba(139,92,246,0.45), 0 0 0 12px rgba(139,92,246,0.05); transform: scale(1.05); }
 }
 
 .hero-title {
-  font-size: 26px;
-  font-weight: 700;
+  font-size: 32px;
+  font-weight: 800;
   margin: 0;
+  background: linear-gradient(135deg, #6d28d9, #2563eb);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.5px;
 }
 
 .hero-sub {
   font-size: 14px;
-  color: #475569;
+  color: #94a3b8;
   margin-top: 6px;
+  font-weight: 400;
+  letter-spacing: 0.3px;
 }
 
-body {
-  margin: 0;
-  min-height: 100vh;
-  font-family: system-ui, sans-serif;
-  background: radial-gradient(circle at top, #f8fafc, #dbeafe 70%);
+/* ================= STEP LABELS ================= */
+.step-label {
   display: flex;
-  justify-content: center;
   align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #8b5cf6;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
 }
 
-.container {
-  width: 100%;
-  max-width: 900px;
-  padding: 20px;
+.step-label .step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 /* ================= CONTROLS ================= */
 .controls {
   display: flex;
-  gap: 12px;
-  justify-content: center;
-  margin-bottom: 22px;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 0;
+  background: rgba(255,255,255,0.72);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(139,92,246,0.1);
+  border-radius: 24px;
+  padding: 28px 24px;
+  box-shadow:
+    0 8px 32px rgba(139,92,246,0.08),
+    0 1px 4px rgba(0,0,0,0.03);
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
-select, button {
-  padding: 10px 14px;
-  font-size: 15px;
-  border-radius: 8px;
-  border: 1px solid #cbd5e1;
+.controls.hidden {
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
 }
 
-button {
+select {
+  width: 100%;
+  padding: 13px 16px;
+  font-size: 14.5px;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-weight: 500;
+  border-radius: 14px;
+  border: 1.5px solid rgba(139,92,246,0.15);
+  background: rgba(255,255,255,0.8);
+  color: #1e293b;
+  appearance: none;
+  -webkit-appearance: none;
   cursor: pointer;
-  background: #4f46e5;
+  outline: none;
+  transition: all 0.25s ease;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238b5cf6' viewBox='0 0 16 16'%3E%3Cpath d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+}
+
+select:focus {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 3px rgba(139,92,246,0.12);
+  background-color: #fff;
+}
+
+select:hover:not(:disabled) {
+  border-color: #a78bfa;
+}
+
+/* ========== DISABLED ROLE SELECT ========== */
+select:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background-color: #f8f9fc;
+  border-color: #e2e8f0;
+  color: #94a3b8;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='%23cbd5e1' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2m3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+}
+
+select option {
+  background: #fff;
+  color: #1e293b;
+}
+
+/* ================= START BUTTON ================= */
+button {
+  padding: 14px 20px;
+  font-size: 15px;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-weight: 700;
+  border-radius: 14px;
+  border: none;
+  cursor: pointer;
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
   color: white;
-  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  box-shadow:
+    0 4px 18px rgba(139,92,246,0.35),
+    inset 0 1px 0 rgba(255,255,255,0.2);
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+button::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
 }
 
 button:hover {
-  background: #4338ca;
+  background: linear-gradient(135deg, #a78bfa, #7c3aed);
+  transform: translateY(-2px);
+  box-shadow:
+    0 8px 28px rgba(139,92,246,0.4),
+    inset 0 1px 0 rgba(255,255,255,0.25);
 }
 
-/* ================= CARD ================= */
+button:hover::after {
+  opacity: 1;
+}
+
+button:active {
+  transform: translateY(0);
+}
+
+/* ================= CHAT CARD ================= */
 .card {
-  background: #f8fafc;
-  border-radius: 18px;
+  background: rgba(255,255,255,0.72);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(139,92,246,0.1);
+  border-radius: 24px;
   padding: 20px;
   box-shadow:
-    0 0 0 1px #cbd5e1,
-    0 25px 45px rgba(148,163,184,0.35);
+    0 8px 32px rgba(139,92,246,0.08),
+    0 1px 4px rgba(0,0,0,0.03);
 }
 
 .chat {
   max-height: 420px;
   overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* Custom scrollbar */
+.chat::-webkit-scrollbar {
+  width: 5px;
+}
+.chat::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat::-webkit-scrollbar-thumb {
+  background: rgba(139,92,246,0.2);
+  border-radius: 3px;
+}
+.chat::-webkit-scrollbar-thumb:hover {
+  background: rgba(139,92,246,0.35);
 }
 
 /* ================= MESSAGES ================= */
 .bot {
-  background: #e0f2fe;
-  border-left: 6px solid #38bdf8;
-  padding: 14px;
-  border-radius: 14px;
-  margin-bottom: 16px;
-  max-width: 75%;
-  animation: fadeInUp 0.3s ease;
+  background: linear-gradient(135deg, #f5f3ff, #ede9fe);
+  border-left: 4px solid #8b5cf6;
+  padding: 14px 16px;
+  border-radius: 4px 18px 18px 18px;
+  margin-bottom: 14px;
+  max-width: 82%;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #1e293b;
+  box-shadow: 0 2px 10px rgba(139,92,246,0.06);
+  animation: msgSlideIn 0.35s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .user {
-  background: #c7d2fe;
-  border-right: 6px solid #6366f1;
-  padding: 14px;
-  border-radius: 14px;
-  margin-bottom: 16px;
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  padding: 14px 16px;
+  border-radius: 18px 4px 18px 18px;
+  margin-bottom: 14px;
   margin-left: auto;
-  max-width: 75%;
+  max-width: 82%;
   text-align: right;
-  animation: fadeInUp 0.3s ease;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(139,92,246,0.25);
+  animation: msgSlideIn 0.35s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes msgSlideIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* ================= FOOTER ================= */
+/* ================= FOOTER / STATUS ================= */
+.footer {
+  margin-top: 14px;
+}
+
 .footer input {
   width: 100%;
-  padding: 10px;
-  border-radius: 10px;
-  border: 1px solid #cbd5e1;
-  background: #e0f2fe;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1.5px solid rgba(139,92,246,0.12);
+  background: rgba(255,255,255,0.6);
+  color: #64748b;
   text-align: center;
-  font-weight: 500;
+  font-weight: 600;
+  font-size: 13.5px;
+  font-family: 'Outfit', system-ui, sans-serif;
+  outline: none;
+  transition: border-color 0.25s ease;
+}
+
+.footer input:focus {
+  border-color: #8b5cf6;
 }
 
 /* ================= LOADING OVERLAY ================= */
 .loading-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(248,250,252,0.94);
-  backdrop-filter: blur(6px);
+  background: rgba(250,251,255,0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   display: none;
   align-items: center;
   justify-content: center;
@@ -553,12 +862,12 @@ button:hover {
 }
 
 .spinner {
-  width: 64px;
-  height: 64px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
-  border: 6px solid #c7d2fe;
-  border-top-color: #4f46e5;
-  animation: spin 1s linear infinite;
+  border: 5px solid #ede9fe;
+  border-top-color: #8b5cf6;
+  animation: spin 0.85s linear infinite;
   margin: auto;
 }
 
@@ -568,43 +877,104 @@ button:hover {
 
 .loading-text {
   margin-top: 16px;
-  font-size: 15px;
-  color: #475569;
-  letter-spacing: 0.3px;
-}
-
-
-.controls {
-  transition: opacity 0.3s ease, transform 0.3s ease;
-}
-
-.controls.hidden {
-  opacity: 0;
-  transform: translateY(-6px);
-  pointer-events: none;
-}
-
-#backBtn {
-  padding: 10px 20px;
   font-size: 14px;
-  border-radius: 10px;
-  border: none;
-  background: #e0e7ff;
-  color: #1e3a8a;
+  color: #64748b;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+
+/* ================= BACK BUTTON ================= */
+#backBtn {
+  padding: 11px 26px;
+  font-size: 13.5px;
+  font-weight: 600;
+  border-radius: 14px;
+  border: 1.5px solid rgba(139,92,246,0.15);
+  background: rgba(255,255,255,0.7);
+  backdrop-filter: blur(8px);
+  color: #7c3aed;
   cursor: pointer;
-  box-shadow: 0 6px 16px rgba(0,0,0,0.12);
-  transition: all 0.2s ease;
+  box-shadow: 0 2px 12px rgba(139,92,246,0.08);
+  transition: all 0.25s ease;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 #backBtn:hover {
-  background: #c7d2fe;
+  background: rgba(245,243,255,0.9);
+  border-color: #a78bfa;
   transform: translateY(-1px);
+  box-shadow: 0 4px 18px rgba(139,92,246,0.14);
+}
+
+/* ================= RESPONSIVE ================= */
+@media (max-width: 600px) {
+  .container {
+    padding: 16px 12px;
+  }
+
+  .hero-title {
+    font-size: 26px;
+  }
+
+  .ai-orb {
+    width: 46px;
+    height: 46px;
+  }
+
+  .controls {
+    padding: 22px 18px;
+  }
+
+  .chat {
+    max-height: 350px;
+  }
+
+  .bot, .user {
+    max-width: 90%;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 380px) {
+  .hero-title {
+    font-size: 22px;
+  }
+
+  .controls {
+    padding: 18px 14px;
+  }
+
+  select {
+    padding: 11px 14px;
+    font-size: 13.5px;
+  }
+
+  button {
+    padding: 12px 16px;
+    font-size: 13.5px;
+  }
 }
 
 </style>
 </head>
 
 <body>
+
+<!-- Live animated background -->
+<div class="bg-canvas">
+  <div class="particle"></div>
+  <div class="particle"></div>
+  <div class="particle"></div>
+  <div class="particle"></div>
+  <div class="particle"></div>
+  <div class="particle"></div>
+  <div class="particle"></div>
+  <div class="particle"></div>
+  <div class="glow-ring"></div>
+  <div class="glow-ring"></div>
+  <div class="glow-ring"></div>
+</div>
 
 <div class="container">
 
@@ -619,15 +989,21 @@ button:hover {
     </div>
   
   <div class="controls" id="controls">
-    <select id="industry"></select>
-    <select id="role"></select>
-    <button onclick="startChat()">Start</button>
+    <div class="step-label"><span class="step-num">1</span> Industry</div>
+    <select id="industry">
+      <option value="" disabled selected>Select Industry</option>
+    </select>
+    <div class="step-label"><span class="step-num">2</span>Role</div>
+    <select id="role" disabled>
+      <option value="" disabled selected>Select Role</option>
+    </select>
+    <button onclick="startChat()">🚀 Start</button>
   </div>
 
   <div class="card" id="chatCard" style="display:none;">
     <div class="chat" id="chat"></div>
     <div class="footer">
-      <input id="status" placeholder="🎤" disabled />
+      <input id="status" placeholder="" disabled />
     </div>
   </div>
 
@@ -646,6 +1022,44 @@ button:hover {
   </div>
 </div>
 
+<!-- Placeholder + Role lock (separate from main script) -->
+<script>
+(function() {
+  var ind = document.getElementById('industry');
+  var rol = document.getElementById('role');
+
+  // Watch for when JS populates options, then prepend placeholder
+  var obs = new MutationObserver(function() {
+    // Industry placeholder
+    if (ind.options.length > 0 && ind.options[0].value !== '') {
+      var ph1 = document.createElement('option');
+      ph1.value = '';
+      ph1.textContent = 'Select Industry';
+      ph1.disabled = true;
+      ph1.selected = true;
+      ind.insertBefore(ph1, ind.firstChild);
+    }
+    // Role placeholder
+    if (rol.options.length > 0 && rol.options[0].value !== '') {
+      var ph2 = document.createElement('option');
+      ph2.value = '';
+      ph2.textContent = 'Select Role';
+      ph2.disabled = true;
+      ph2.selected = true;
+      rol.insertBefore(ph2, rol.firstChild);
+    }
+  });
+
+  obs.observe(ind, { childList: true });
+  obs.observe(rol, { childList: true });
+
+  // Unlock role when industry is changed
+  ind.addEventListener('change', function() {
+    rol.disabled = false;
+  });
+})();
+</script>
+
 <script>
 /* ================= CONFIG ================= */
 const CHAT_API = "/api/demo/chat/";
@@ -653,7 +1067,7 @@ const INDUSTRY_API = "/api/agents/industries/";
 const ROLE_API = "/api/agents/roles/";
 
 // ✅ ACTIVE ROLES (can grow anytime)
-const ACTIVE_ROLE_IDS = ["1","2","22"]; 
+const ACTIVE_ROLE_IDS = ["1","2","4","22","23","24"]; 
 // Appointment Scheduler, Doctor Booking, Lab Reports (example)
 
 /* ================= STATE ================= */
@@ -668,12 +1082,35 @@ let botSpeaking = false;
 let silenceTimer = null;
 let speechBuffer = "";
 
-const USER_LONG_SILENCE_LIMIT = 1000;
+const USER_LONG_SILENCE_LIMIT = 2500;
 
-/* ================= DOM ================= */
 const chat = document.getElementById("chat");
 const statusInput = document.getElementById("status");
 const loadingOverlay = document.getElementById("loadingOverlay");
+
+
+/* ================= SAFARI AUDIO FIX ================= */
+let audioContext = null;
+const iosAudio = new Audio();
+iosAudio.playsInline = true;
+iosAudio.preload = "auto";
+
+async function unlockSafariAudio() {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioContext.state === "suspended") {
+    await audioContext.resume();
+  }
+
+  // silent unlock sound
+  const buffer = audioContext.createBuffer(1, 1, 22050);
+  const source = audioContext.createBufferSource();
+  source.buffer = buffer;
+  source.connect(audioContext.destination);
+  source.start();
+}
+
 
 /* ================= LOADING ================= */
 function showLoading() {
@@ -725,11 +1162,10 @@ function initMic() {
 
   recognition = new SR();
   recognition.lang = "en-IN";
-  recognition.continuous = false;
+  recognition.continuous = false;   // 🔥 REQUIRED FOR SAFARI
   recognition.interimResults = false;
 
   recognition.onstart = () => {
-    if (botSpeaking) return stopMic();
     micActive = true;
     statusInput.value = "🎤 Listening…";
   };
@@ -738,17 +1174,16 @@ function initMic() {
     const text = e.results[0][0].transcript.trim();
     if (!text) return;
 
-    speechBuffer += (speechBuffer ? " " : "") + text;
+    speechBuffer = text;
     addUser(speechBuffer);
 
     clearTimeout(silenceTimer);
-    silenceTimer = setTimeout(finalizeUserSpeech, USER_LONG_SILENCE_LIMIT);
+    silenceTimer = setTimeout(finalizeUserSpeech, 2000); // ⏱ SAFARI NEEDS MORE TIME
   };
 
+  // ❌ DO NOT AUTO-RESTART ON SAFARI
   recognition.onend = () => {
-    if (micActive && !botSpeaking) {
-      try { recognition.start(); } catch {}
-    }
+    micActive = false;
   };
 }
 
@@ -779,15 +1214,21 @@ function playAudio(base64) {
     return;
   }
 
-  const audio = new Audio("data:audio/wav;base64," + base64);
+  iosAudio.src = "data:audio/wav;base64," + base64;
+  iosAudio.load();
 
-  audio.onended = () => {
+  iosAudio.onended = () => {
     botSpeaking = false;
     statusInput.value = "🎤 Listening…";
     startMic();
   };
 
-  audio.play().catch(() => {
+  iosAudio.onerror = () => {
+    botSpeaking = false;
+    startMic();
+  };
+
+  iosAudio.play().catch(() => {
     botSpeaking = false;
     startMic();
   });
@@ -822,17 +1263,37 @@ async function sendUserMessage(text) {
   playAudio(d.audio);
 }
 
+
+function showComingSoonMessage() {
+  document.getElementById("controls").style.display = "none";
+  document.getElementById("chatCard").style.display = "block";
+  document.getElementById("backWrapper").style.display = "block";
+
+  chat.innerHTML = `
+    <div class="bot">
+      🚧 <strong>This service is coming soon.</strong><br>
+      Please select a different agent or service.
+    </div>
+  `;
+
+  statusInput.value = "Unavailable";
+}
+
 /* ================= START CHAT ================= */
 async function startChat() {
 
 
-    // ❌ BLOCK unavailable roles
-  if (!ACTIVE_ROLE_IDS.includes(selectedRole)) {
-    showComingSoon();
-    return;
-  }
 
-    // 🔥 HIDE DROPDOWNS + START BUTTON
+ // ❌ BLOCK inactive roles
+  if (!ACTIVE_ROLE_IDS.includes(selectedRole)) {
+   showComingSoonMessage();
+   return;
+ }
+
+  await unlockSafariAudio(); // 🔥 SAFARI AUDIO UNLOCK
+
+
+  // 🔥 HIDE DROPDOWNS + START BUTTON
   document.getElementById("controls").style.display = "none";
   document.getElementById("backWrapper").style.display = "block";
 

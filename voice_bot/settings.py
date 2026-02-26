@@ -48,8 +48,8 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
 ]
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5174",
-    "multivoicebot-d3eyanb4h2g4crhh.centralindia-01.azurewebsites.net",
+    "http://localhost:5173",
+    "https://multivoicebot-d3eyanb4h2g4crhh.centralindia-01.azurewebsites.net",
 ]
 # Application definition
 

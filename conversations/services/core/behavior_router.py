@@ -11,10 +11,13 @@ ROLE_STRATEGY_MAP = {
     "Returns & Refund Agent": "transaction",
  
     #Real Estate
-    "Loan Eligibility Assistant": "information",
+    "Loan Eligibility Assistant": "loan_financial",
     "Site Visit Scheduler": "transaction",
     "Property Inquiry Agent": "smart_real_estate",
- 
+    #Education
+    "Admission Counselor": "information",
+    "Course Advisor": "education_qualification",
+
     # Qualification Roles
     "Sales Executive": "qualification",
     "Lead Qualifier": "qualification",
@@ -28,4 +31,3 @@ ROLE_STRATEGY_MAP = {
  
 def get_role_strategy(role_name: str):
     return ROLE_STRATEGY_MAP.get(role_name, "information")
- 
