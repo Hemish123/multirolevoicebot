@@ -923,7 +923,7 @@ let botSpeaking = false;
 let silenceTimer = null;
 let speechBuffer = "";
 
-const USER_LONG_SILENCE_LIMIT = 2500;
+const USER_LONG_SILENCE_LIMIT = 800;
 
 const chat = document.getElementById("chat");
 const statusInput = document.getElementById("status");
@@ -1019,7 +1019,7 @@ function initMic() {
     addUser(speechBuffer);
 
     clearTimeout(silenceTimer);
-    silenceTimer = setTimeout(finalizeUserSpeech, 2000); // ⏱ SAFARI NEEDS MORE TIME
+    silenceTimer = setTimeout(finalizeUserSpeech, USER_LONG_SILENCE_LIMIT);
   };
 
   // ❌ DO NOT AUTO-RESTART ON SAFARI
@@ -1086,6 +1086,8 @@ function finalizeUserSpeech() {
 
 /* ================= SEND USER ================= */
 async function sendUserMessage(text) {
+  statusInput.value = "🤔 Thinking…";
+
   const r = await fetch(CHAT_API, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
