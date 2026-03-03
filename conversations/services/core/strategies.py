@@ -1994,4 +1994,107 @@ Instructions:
 
 
 
+def recruitment_advisory_strategy(agent, message, session):
 
+    import json, re
+    from knowledge.services.retriever import retrieve_relevant_chunks
+    from conversations.services.azure_openai_service import generate_response
+
+    msg = message.lower().strip()
+    state = session.state or {}
+
+    # =========================================================
+    # 1️⃣ Knowledge First (Job Details / Process)
+    # =========================================================
+
+    context = retrieve_relevant_chunks(agent, message)
+
+    if context.strip():
+        system_prompt = f"""
+{agent.resolved_prompt}
+
+Relevant Recruitment Information:
+{context}
+
+Instructions:
+- Answer clearly and professionally.
+- Keep response under 3 sentences.
+- Do not invent job details.
+"""
+        return generate_response(system_prompt, message)
+
+    # =========================================================
+    # 2️⃣ Extract Candidate Details (AI Based)
+    # =========================================================
+
+    extraction_prompt = f"""
+Extract candidate details from the message.
+
+Return JSON:
+{{
+  "skills": "",
+  "experience_years": "",
+  "preferred_role": "",
+  "location": ""
+}}
+
+Message: "{message}"
+"""
+
+    raw = generate_response(extraction_prompt, message)
+
+    try:
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        extracted = json.loads(match.group())
+    except:
+        extracted = {}
+
+    for key, value in extracted.items():
+        if value:
+            state[key] = value
+
+    session.state = state
+    session.save()
+
+    # =========================================================
+    # 3️⃣ Ask Missing Key Info
+    # =========================================================
+
+    if not state.get("preferred_role"):
+        return "Could you tell me which role you’re interested in?"
+
+    if not state.get("experience_years"):
+        return "How many years of relevant experience do you have?"
+
+    # =========================================================
+    # 4️⃣ Match With Available Roles
+    # =========================================================
+
+    query = f"Job opening for {state.get('preferred_role')} with {state.get('experience_years')} years experience"
+
+    job_context = retrieve_relevant_chunks(agent, query)
+
+    if not job_context.strip():
+        return (
+            "I don’t currently see an exact match for that experience level. "
+            "Would you like me to check similar openings?"
+        )
+
+    system_prompt = f"""
+You are an HR recruiter at {agent.company_name}.
+
+Candidate Profile:
+{state}
+
+Available Job:
+{job_context}
+
+Instructions:
+- Respond professionally.
+- Confirm eligibility if appropriate.
+- Explain next recruitment step briefly.
+- Keep under 3 sentences.
+- Do not guarantee selection.
+"""
+
+    return generate_response(system_prompt, message)

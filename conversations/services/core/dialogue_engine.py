@@ -322,6 +322,7 @@ from conversations.services.core.strategies import (
     travel_planner_strategy,
     restaurant_booking_strategy,
     hotel_booking_strategy,
+    recruitment_advisory_strategy,
 )
  
  
@@ -461,6 +462,9 @@ def process_message(agent, message, session_id=None):
 
     elif strategy_type == "education_support":
         reply = education_support_strategy(agent, message, session)
+
+    elif strategy_type == "recruitment_advisory":
+        reply = recruitment_advisory_strategy(agent, message, session)
 
     elif strategy_type == "information":
         reply = information_strategy(agent, message, session)
