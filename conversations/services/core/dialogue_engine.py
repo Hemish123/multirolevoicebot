@@ -310,6 +310,7 @@ import uuid
 from conversations.services.core.behavior_router import get_role_strategy
 from conversations.services.core.strategies import (
     education_qualification_strategy,
+    identity_guard,
     information_strategy,
     transaction_strategy,
     qualification_strategy,
@@ -318,6 +319,9 @@ from conversations.services.core.strategies import (
     loan_financial_strategy,
     education_scholarship_strategy,
     education_support_strategy,
+    travel_planner_strategy,
+    restaurant_booking_strategy,
+    hotel_booking_strategy,
 )
  
  
@@ -344,7 +348,11 @@ def process_message(agent, message, session_id=None):
     session.current_intent = intent
  
     # 3️⃣ GLOBAL ROUTER (Intent-Level)
- 
+    
+    identity_reply = identity_guard(agent, message)
+    if identity_reply:
+        return identity_reply, session_id
+
     if intent == "greeting" and not session.stage and not session.state:
         reply = f"Hello! Welcome to {agent.company_name or agent.name}. How can I assist you today?"
         return reply, session_id
@@ -476,6 +484,13 @@ def process_message(agent, message, session_id=None):
         else:
             reply = information_strategy(agent, message, session)
  
-    
+    elif strategy_type == "hotel_booking":
+            reply = hotel_booking_strategy(agent, message, session)
+
+    elif strategy_type == "restaurant_booking":
+            reply = restaurant_booking_strategy(agent, message, session)
+
+    elif strategy_type == "travel_planner":
+            reply = travel_planner_strategy(agent, message, session)
 
     return reply, session_id

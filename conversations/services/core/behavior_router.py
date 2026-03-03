@@ -21,12 +21,17 @@ ROLE_STRATEGY_MAP = {
     "Student Help Desk": "education_support",
 
     # Qualification Roles
-    "Sales Executive": "qualification",
-    "Lead Qualifier": "qualification",
-    "Product Demo Agent": "qualification",
+    "Sales Executive": "information",
+    "Lead Qualifier": "information",
+    "Product Demo Agent": "information",
    
     "HR Recruiter": "qualification",
- 
+    
+
+    #hospitality
+    "Hotel Room Booking Agent": "hotel_booking",
+    "Restaurant Table Booking Agent": "restaurant_booking",
+    "Travel Agent & Trip Planner": "travel_planner",
     # Default → Information
 }
  

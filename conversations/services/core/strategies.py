@@ -395,7 +395,44 @@
 
 from knowledge.services.retriever import retrieve_relevant_chunks
 from conversations.services.azure_openai_service import generate_response
+import dateparser
+import re
+from dateparser.search import search_dates
  
+
+
+def identity_guard(agent, message):
+    """
+    Intercepts identity-related questions BEFORE any strategy logic.
+    Returns a response string if handled, otherwise None.
+    """
+
+    msg = message.lower().strip()
+
+    identity_phrases = [
+        "who are you",
+        "what is your name",
+        "introduce yourself",
+        "tell me about you",
+        "what do you do"
+    ]
+
+    if any(p in msg for p in identity_phrases):
+        system_prompt = f"""
+{agent.resolved_prompt}
+
+User is asking about your identity.
+
+Instructions:
+- Introduce yourself clearly.
+- Mention your role and company.
+- Do NOT start any sales, qualification, or booking flow.
+- Keep response to 2–3 sentences.
+- Sound human and professional.
+"""
+        return generate_response(system_prompt, message)
+
+    return None
  
 def information_strategy(agent, message, session):
     context = retrieve_relevant_chunks(agent, message)
@@ -443,9 +480,11 @@ Keep it conversational.
 Knowledge Context:
 {context}
 
-Respond conversationally.
-Do not use brochure formatting.
-Keep response 3–5 sentences.
+Respond in a short, natural tone.
+Maximum 2–3 sentences.
+Under 70 words.
+No repetition.
+Be direct and helpful.
 Do not hallucinate.
 """
 
@@ -1204,3 +1243,755 @@ Instructions:
 """
 
     return generate_response(system_prompt, message)
+
+
+# def hotel_booking_strategy(agent, message, session):
+
+#     state = session.state or {}
+#     msg = message.lower().strip()
+
+#     # 🔹 Handle completed state
+#     if session.stage == "completed":
+#         if any(word in msg for word in ["thank", "thanks"]):
+#             return "You're most welcome. We look forward to hosting you."
+#         session.stage = None
+#         session.state = {}
+#         session.save()
+#         return information_strategy(agent, message, session)
+
+#     if session.stage == "confirming":
+
+#         confirmation_words = [
+#             "yes", "yeah", "yup", "sure", "ok", "okay",
+#             "confirm", "proceed", "go ahead", "please do",
+#             "sounds good", "that works", "fine", "done"
+#         ]
+
+#         rejection_words = [
+#             "no", "not", "cancel", "change", "modify", "wait"
+#         ]
+
+#         if any(word == msg.strip() or msg.startswith(word) for word in confirmation_words):
+#             session.stage = "completed"
+#             session.state = {}
+#             session.save()
+#             return "Perfect. Your booking has been successfully confirmed. We look forward to welcoming you."
+
+#         if any(word in msg for word in rejection_words):
+#             session.state = {}
+#             session.stage = None
+#             session.save()
+#             return "No problem at all. Let me know the updated details and I’ll adjust the booking."
+
+#         return "Please let me know if you’d like to confirm the booking."
+
+#     # 1️⃣ Always allow general information first
+#     general_keywords = [
+#         "who are you", "about", "room", "room types", "price",
+#         "amenities", "wifi", "parking", "policy",
+#         "check-in time", "check out time", "cancellation"
+#     ]
+
+#     if any(word in msg for word in general_keywords) and not state:
+#         return information_strategy(agent, message, session)
+
+#     # 2️⃣ Only trigger booking if booking intent detected
+#     booking_keywords = [
+#         "book", "reservation", "reserve", "stay",
+#         "check in", "check-in"
+#     ]
+
+#     if not any(word in msg for word in booking_keywords) and not state:
+#         return information_strategy(agent, message, session)
+
+#     # 3️⃣ AI extraction
+#     extraction_prompt = """
+# Extract booking details.
+
+# Return JSON only:
+# {
+#   "check_in": "",
+#   "check_out": "",
+#   "guests": "",
+#   "room_type": "",
+#   "name": ""
+# }
+# """
+
+#     response = generate_response(extraction_prompt, message)
+
+#     import json, re
+#     try:
+#         match = re.search(r"\{.*\}", response, re.DOTALL)
+#         extracted = json.loads(match.group())
+#     except:
+#         extracted = {}
+
+#     for key, value in extracted.items():
+#         if value:
+#             state[key] = value
+
+#     session.state = state
+#     session.save()
+
+#     required = ["check_in", "check_out", "guests", "room_type", "name"]
+#     missing = [f for f in required if not state.get(f)]
+
+#     if missing:
+#         return f"May I know your {missing[0].replace('_',' ')}?"
+
+#     session.stage = "confirming"
+#     session.save()
+
+#     return (
+#         f"Just to confirm — {state['room_type']} from {state['check_in']} to {state['check_out']} "
+#         f"for {state['guests']} guest(s) under {state['name']}. "
+#         f"Should I confirm it?"
+#     )
+
+########################################################################3
+# def hotel_booking_strategy(agent, message, session):
+
+#     import json, re
+
+#     state = session.state or {}
+#     msg = message.lower().strip()
+
+#     # 🔹 1. Handle Completed
+#     if session.stage == "completed":
+#         if any(word in msg for word in ["thank", "thanks"]):
+#             return "You're most welcome. We look forward to hosting you."
+#         session.stage = None
+#         session.state = {}
+#         session.save()
+#         return information_strategy(agent, message, session)
+
+#     # 🔹 2. Handle Confirmation
+#     if session.stage == "confirming":
+
+#         confirm_prompt = f"""
+# Does this message confirm the booking?
+
+# Message: "{message}"
+
+# Return JSON:
+# {{ "confirm": true/false }}
+# """
+
+#         raw = generate_response(confirm_prompt, message)
+
+#         try:
+#             match = re.search(r"\{.*\}", raw, re.DOTALL)
+#             data = json.loads(match.group())
+#             confirmed = data.get("confirm", False)
+#         except:
+#             confirmed = False
+
+#         if confirmed:
+#             session.stage = "completed"
+#             session.state = {}
+#             session.save()
+#             return "Perfect. Your booking has been confirmed."
+
+#         session.stage = None
+#         session.state = {}
+#         session.save()
+#         return "No problem. Please share the updated booking details."
+
+#     # 🔹 3. Detect if booking intent exists
+#     intent_prompt = f"""
+# Is this message about booking a hotel room?
+
+# Return JSON:
+# {{ "booking": true/false }}
+
+# Message: "{message}"
+# """
+
+#     raw_intent = generate_response(intent_prompt, message)
+
+#     try:
+#         match = re.search(r"\{.*\}", raw_intent, re.DOTALL)
+#         intent_data = json.loads(match.group())
+#         booking_intent = intent_data.get("booking", False)
+#     except:
+#         booking_intent = False
+
+#     if not booking_intent and not state:
+#         return information_strategy(agent, message, session)
+
+#     # 🔹 4. Extract Booking Data
+#     extraction_prompt = f"""
+# You are a hotel booking data extractor.
+
+# Extract booking details carefully.
+
+# Rules:
+# - If user provides a date range like "4 March to 5 March",
+#   set check_in = 4 March
+#   set check_out = 5 March
+# - If user mentions only one date, assume it is check_in.
+# - If user mentions number of people, fill guests.
+# - If user mentions room type, fill room_type.
+# - If user mentions name, fill name.
+# - Do NOT guess missing fields.
+
+# Return JSON only:
+# {{
+#   "check_in": "",
+#   "check_out": "",
+#   "guests": "",
+#   "room_type": "",
+#   "name": ""
+# }}
+
+# Message: "{message}"
+# """
+#     # 🔹 4A — Deterministic Date Extraction Using dateparser
+
+#     parsed = search_dates(message)
+
+#     if parsed:
+#         if len(parsed) >= 1:
+#             state["check_in"] = parsed[0][1].strftime("%d %B")
+#         if len(parsed) >= 2:
+#             state["check_out"] = parsed[1][1].strftime("%d %B")
+#     raw = generate_response(extraction_prompt, message)
+
+#     try:
+#         match = re.search(r"\{.*\}", raw, re.DOTALL)
+#         extracted = json.loads(match.group())
+#     except:
+#         extracted = {}
+
+#     for key, value in extracted.items():
+#         if value and not state.get(key):
+#             state[key] = value
+#         session.state = state
+#     session.save()
+
+#     # 🔹 4.5 — Handle Info Interruption During Active Booking
+
+#     if state:  # booking already started
+
+#         info_check_prompt = f"""
+#     Is this message asking about hotel information like amenities,
+#     policies, timings, pricing, or facilities?
+
+#     Return JSON:
+#     {{ "info": true/false }}
+
+#     Message: "{message}"
+#     """
+
+#         raw_info = generate_response(info_check_prompt, message)
+
+#         try:
+#             match = re.search(r"\{.*\}", raw_info, re.DOTALL)
+#             info_data = json.loads(match.group())
+#             is_info = info_data.get("info", False)
+#         except:
+#             is_info = False
+
+#         if is_info:
+#             info_reply = information_strategy(agent, message, session)
+
+#             # Determine next missing field
+#             if not state.get("check_in"):
+#                 next_question = "What is your check-in date?"
+#             elif not state.get("check_out"):
+#                 next_question = "And your check-out date?"
+#             elif not state.get("guests"):
+#                 next_question = "How many guests will be staying?"
+#             elif not state.get("room_type"):
+#                 next_question = "Do you have a preferred room type?"
+#             elif not state.get("name"):
+#                 next_question = "May I have your name for the booking?"
+#             else:
+#                 return info_reply
+
+#             return f"{info_reply}\n\nNow, {next_question}"
+
+
+#     # 🔹 5. Natural Step-by-Step Flow
+
+#     if not state.get("check_in") and not state.get("check_out"):
+#         return "Of course. What are your check-in and check-out dates?"
+
+#     if not state.get("check_in"):
+#         return "When would you like to check in?"
+
+#     if not state.get("check_out"):
+#         return "And your check-out date?"
+
+#     if not state.get("guests"):
+#         return "How many guests will be staying?"
+
+#     if not state.get("room_type"):
+#         return "Do you have a preferred room type?"
+
+#     if not state.get("name"):
+#         return "May I have your name for the booking?"
+
+#     # 🔹 6. Confirmation
+#     session.stage = "confirming"
+#     session.save()
+
+#     return (
+#         f"Just to confirm — {state['room_type']} from {state['check_in']} "
+#         f"to {state['check_out']} for {state['guests']} guest(s) "
+#         f"under {state['name']}. Should I confirm it?"
+#     )
+###############################################################################33
+
+def hotel_booking_strategy(agent, message, session):
+
+    import re
+    from dateparser.search import search_dates
+
+    msg = message.lower().strip()
+    state = session.state or {}
+
+    # ===============================
+    # 1️⃣ Start Booking
+    # ===============================
+    if any(word in msg for word in ["book", "reservation", "reserve"]):
+        session.stage = "ask_checkin"
+        session.state = {}
+        session.save()
+        return "Sure. What is your check-in date?"
+
+    # ===============================
+    # 2️⃣ Ask Check-in
+    # ===============================
+    if session.stage == "ask_checkin":
+
+        parsed = search_dates(message)
+        if parsed:
+            state["check_in"] = parsed[0][1].strftime("%d %B")
+            session.stage = "ask_checkout"
+            session.state = state
+            session.save()
+            return "And your check-out date?"
+
+        return "Please tell me your check-in date."
+
+    # ===============================
+    # 3️⃣ Ask Check-out
+    # ===============================
+    if session.stage == "ask_checkout":
+
+        parsed = search_dates(message)
+        if parsed:
+            state["check_out"] = parsed[0][1].strftime("%d %B")
+            session.stage = "ask_guests"
+            session.state = state
+            session.save()
+            return "How many guests will be staying?"
+
+        return "Please tell me your check-out date."
+
+    # ===============================
+    # 4️⃣ Ask Guests
+    # ===============================
+    if session.stage == "ask_guests":
+
+        match = re.search(r"\d+", msg)
+        if match:
+            state["guests"] = match.group()
+            session.stage = "ask_room"
+            session.state = state
+            session.save()
+            return "Do you have a preferred room type?"
+
+        return "How many guests will be staying?"
+
+    # ===============================
+    # 5️⃣ Ask Room Type
+    # ===============================
+    if session.stage == "ask_room":
+
+        state["room_type"] = message.strip()
+        session.stage = "ask_name"
+        session.state = state
+        session.save()
+        return "May I have your name for the booking?"
+
+    # ===============================
+    # 6️⃣ Ask Name
+    # ===============================
+    if session.stage == "ask_name":
+
+        state["name"] = message.strip()
+        session.stage = "confirming"
+        session.state = state
+        session.save()
+
+        return (
+            f"Just to confirm — {state['room_type']} from "
+            f"{state['check_in']} to {state['check_out']} "
+            f"for {state['guests']} guest(s) under {state['name']}. "
+            f"Should I confirm it?"
+        )
+
+    # ===============================
+    # 7️⃣ Confirmation
+    # ===============================
+    if session.stage == "confirming":
+
+        if any(word in msg for word in [
+            "yes", "confirm", "sure", "okay", "ok", "go ahead"
+        ]):
+            session.stage = "completed"
+            session.state = {}
+            session.save()
+            return "Perfect. Your booking is confirmed."
+
+        session.stage = None
+        session.state = {}
+        session.save()
+        return "No problem. Let's start again whenever you're ready."
+
+    # ===============================
+    # 8️⃣ Fallback → Information
+    # ===============================
+    return information_strategy(agent, message, session)
+
+
+def restaurant_booking_strategy(agent, message, session):
+
+    import re
+    import json
+    from dateparser.search import search_dates
+    from knowledge.services.retriever import retrieve_relevant_chunks
+    from conversations.services.azure_openai_service import generate_response
+
+    msg = message.lower().strip()
+    state = session.state or {}
+
+    # =========================================================
+    # 1️⃣ COMPLETED STATE
+    # =========================================================
+    if session.stage == "completed":
+        if any(word in msg for word in ["thank", "thanks"]):
+            return "You're most welcome. We look forward to serving you."
+        session.stage = None
+        session.state = {}
+        session.save()
+        return information_strategy(agent, message, session)
+
+    # =========================================================
+    # 2️⃣ CONFIRMATION STAGE
+    # =========================================================
+    if session.stage == "confirming":
+
+        if any(word in msg for word in [
+            "yes", "confirm", "sure", "okay", "ok", "go ahead"
+        ]):
+            session.stage = "completed"
+            session.state = {}
+            session.save()
+
+            confirm_prompt = """
+You are a warm and professional restaurant assistant.
+
+Confirm the reservation in a friendly, welcoming tone.
+Keep it under 2 sentences.
+"""
+            return generate_response(confirm_prompt, message)
+
+        session.stage = None
+        session.state = {}
+        session.save()
+        return "No worries at all. Let me know whenever you'd like to reserve a table."
+
+    # =========================================================
+    # 3️⃣ KNOWLEDGE / INFORMATION HANDLING (RAG)
+    # =========================================================
+    knowledge_context = retrieve_relevant_chunks(agent, message)
+
+    info_keywords = [
+        "menu", "timing", "hours", "open", "close",
+        "parking", "address", "policy", "cuisine"
+    ]
+
+    if knowledge_context and any(word in msg for word in info_keywords):
+
+        info_prompt = f"""
+You are a helpful and friendly restaurant assistant.
+
+Knowledge:
+{knowledge_context}
+
+Respond naturally in 2-3 sentences.
+Do not sound robotic.
+"""
+
+        info_reply = generate_response(info_prompt, message)
+
+        # Resume booking if in progress
+        if session.stage:
+            next_question = get_next_restaurant_question(session.stage)
+            if next_question:
+                return f"{info_reply}\n\nBy the way, {next_question}"
+
+        return info_reply
+
+    # =========================================================
+    # 4️⃣ START BOOKING INTENT
+    # =========================================================
+    if any(word in msg for word in ["book", "reserve", "reservation", "table"]):
+        session.stage = "ask_date"
+        session.state = {}
+        session.save()
+
+        start_prompt = """
+You are a friendly restaurant reservation assistant.
+
+Ask the guest for their preferred reservation date.
+Keep it short and welcoming.
+"""
+        return generate_response(start_prompt, message)
+
+    # =========================================================
+    # 5️⃣ STAGE-BASED FLOW
+    # =========================================================
+
+    # ---- ASK DATE
+    if session.stage == "ask_date":
+
+        parsed = search_dates(message)
+        if parsed:
+            state["date"] = parsed[0][1].strftime("%d %B")
+            session.stage = "ask_time"
+            session.state = state
+            session.save()
+
+            time_prompt = """
+Politely ask for the preferred reservation time.
+Sound natural.
+"""
+            return generate_response(time_prompt, message)
+
+        return "Could you please share the reservation date?"
+
+    # ---- ASK TIME
+    if session.stage == "ask_time":
+
+        time_match = re.search(r"\b(\d{1,2}(:\d{2})?\s?(am|pm)?)\b", msg)
+        if time_match:
+            state["time"] = time_match.group(1)
+            session.stage = "ask_guests"
+            session.state = state
+            session.save()
+
+            guest_prompt = """
+Ask how many guests will be dining.
+Be friendly and concise.
+"""
+            return generate_response(guest_prompt, message)
+
+        return "What time should I reserve the table for?"
+
+    # ---- ASK GUESTS
+    if session.stage == "ask_guests":
+
+        guest_match = re.search(r"\d+", msg)
+        if guest_match:
+            state["guests"] = guest_match.group()
+            session.stage = "ask_name"
+            session.state = state
+            session.save()
+
+            name_prompt = """
+Politely ask for the guest's name for the reservation.
+Keep it short.
+"""
+            return generate_response(name_prompt, message)
+
+        return "How many guests will be joining?"
+
+    # ---- ASK NAME
+    if session.stage == "ask_name":
+
+        state["name"] = message.strip()
+        session.stage = "confirming"
+        session.state = state
+        session.save()
+
+        confirm_prompt = f"""
+You are a professional restaurant assistant.
+
+Summarize the reservation naturally:
+
+Date: {state['date']}
+Time: {state['time']}
+Guests: {state['guests']}
+Name: {state['name']}
+
+Ask politely if you should confirm it.
+Keep it warm and under 2 sentences.
+"""
+        return generate_response(confirm_prompt, message)
+
+    # =========================================================
+    # 6️⃣ DEFAULT FALLBACK
+    # =========================================================
+    if knowledge_context:
+        fallback_prompt = f"""
+You are a helpful restaurant assistant.
+
+Knowledge:
+{knowledge_context}
+
+Respond naturally and briefly.
+"""
+        return generate_response(fallback_prompt, message)
+
+    return "How may I assist you today?"
+
+
+def get_next_restaurant_question(stage):
+
+    mapping = {
+        "ask_date": "what date would you like to reserve?",
+        "ask_time": "what time works best for you?",
+        "ask_guests": "how many guests will be joining?",
+        "ask_name": "may I have your name for the reservation?",
+        "confirming": "shall I confirm the reservation?"
+    }
+
+    return mapping.get(stage, "")
+
+def travel_planner_strategy(agent, message, session):
+
+    import json, re
+    from knowledge.services.retriever import retrieve_relevant_chunks
+    from conversations.services.azure_openai_service import generate_response
+
+    msg = message.lower().strip()
+    state = session.state or {}
+
+    # =========================================================
+    # 1️⃣ ALWAYS CHECK KNOWLEDGE FIRST (RAG PRIORITY)
+    # =========================================================
+
+    context = retrieve_relevant_chunks(agent, message)
+
+    if context.strip():
+        system_prompt = f"""
+{agent.resolved_prompt}
+
+Relevant Information:
+{context}
+
+Instructions:
+- Answer directly from the knowledge context.
+- Keep response under 3 sentences.
+- Be natural and conversational.
+- Do NOT invent information.
+"""
+        return generate_response(system_prompt, message)
+
+    # =========================================================
+    # 2️⃣ IDENTITY / META QUESTIONS
+    # =========================================================
+
+    meta_keywords = [
+        "who are you",
+        "about you",
+        "what services",
+        "how can you help",
+        "contact",
+        "address",
+        "phone",
+        "email"
+    ]
+
+    if any(word in msg for word in meta_keywords):
+        return information_strategy(agent, message, session)
+
+    # =========================================================
+    # 3️⃣ ADVISORY EXTRACTION (ONLY IF NOT KNOWLEDGE)
+    # =========================================================
+
+    extraction_prompt = f"""
+Extract travel planning details.
+
+Return JSON:
+{{
+  "destination": "",
+  "travel_dates": "",
+  "budget": "",
+  "travel_type": "",
+  "duration": ""
+}}
+
+Message: "{message}"
+"""
+
+    raw = generate_response(extraction_prompt, message)
+
+    try:
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        extracted = json.loads(match.group())
+    except:
+        extracted = {}
+
+    for key, value in extracted.items():
+        if value:
+            state[key] = value
+
+    session.state = state
+    session.save()
+
+    # =========================================================
+    # 4️⃣ CLARIFICATION
+    # =========================================================
+
+    if not state.get("destination"):
+        return "Sure. Which destination are you planning to visit?"
+
+    if not state.get("travel_dates"):
+        return "When are you planning to travel?"
+
+    # =========================================================
+    # 5️⃣ SUGGEST PACKAGE
+    # =========================================================
+
+    query = f"""
+Travel package for {state.get('destination')}
+Duration: {state.get('duration','')}
+Budget: {state.get('budget','')}
+Travel type: {state.get('travel_type','')}
+"""
+
+    package_context = retrieve_relevant_chunks(agent, query)
+
+    if not package_context.strip():
+        return (
+            "I don’t see an exact match for that combination. "
+            "Would you like to explore available options for that destination?"
+        )
+
+    system_prompt = f"""
+You are a professional travel consultant at {agent.company_name}.
+
+Traveler Preferences:
+{state}
+
+Available Package:
+{package_context}
+
+Instructions:
+- Recommend the most relevant package.
+- Keep response under 3 sentences.
+- Be natural and helpful.
+- End with one short follow-up question.
+"""
+
+    return generate_response(system_prompt, message)
+
+
+
+
