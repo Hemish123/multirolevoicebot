@@ -1245,303 +1245,6 @@ Instructions:
     return generate_response(system_prompt, message)
 
 
-# def hotel_booking_strategy(agent, message, session):
-
-#     state = session.state or {}
-#     msg = message.lower().strip()
-
-#     # 🔹 Handle completed state
-#     if session.stage == "completed":
-#         if any(word in msg for word in ["thank", "thanks"]):
-#             return "You're most welcome. We look forward to hosting you."
-#         session.stage = None
-#         session.state = {}
-#         session.save()
-#         return information_strategy(agent, message, session)
-
-#     if session.stage == "confirming":
-
-#         confirmation_words = [
-#             "yes", "yeah", "yup", "sure", "ok", "okay",
-#             "confirm", "proceed", "go ahead", "please do",
-#             "sounds good", "that works", "fine", "done"
-#         ]
-
-#         rejection_words = [
-#             "no", "not", "cancel", "change", "modify", "wait"
-#         ]
-
-#         if any(word == msg.strip() or msg.startswith(word) for word in confirmation_words):
-#             session.stage = "completed"
-#             session.state = {}
-#             session.save()
-#             return "Perfect. Your booking has been successfully confirmed. We look forward to welcoming you."
-
-#         if any(word in msg for word in rejection_words):
-#             session.state = {}
-#             session.stage = None
-#             session.save()
-#             return "No problem at all. Let me know the updated details and I’ll adjust the booking."
-
-#         return "Please let me know if you’d like to confirm the booking."
-
-#     # 1️⃣ Always allow general information first
-#     general_keywords = [
-#         "who are you", "about", "room", "room types", "price",
-#         "amenities", "wifi", "parking", "policy",
-#         "check-in time", "check out time", "cancellation"
-#     ]
-
-#     if any(word in msg for word in general_keywords) and not state:
-#         return information_strategy(agent, message, session)
-
-#     # 2️⃣ Only trigger booking if booking intent detected
-#     booking_keywords = [
-#         "book", "reservation", "reserve", "stay",
-#         "check in", "check-in"
-#     ]
-
-#     if not any(word in msg for word in booking_keywords) and not state:
-#         return information_strategy(agent, message, session)
-
-#     # 3️⃣ AI extraction
-#     extraction_prompt = """
-# Extract booking details.
-
-# Return JSON only:
-# {
-#   "check_in": "",
-#   "check_out": "",
-#   "guests": "",
-#   "room_type": "",
-#   "name": ""
-# }
-# """
-
-#     response = generate_response(extraction_prompt, message)
-
-#     import json, re
-#     try:
-#         match = re.search(r"\{.*\}", response, re.DOTALL)
-#         extracted = json.loads(match.group())
-#     except:
-#         extracted = {}
-
-#     for key, value in extracted.items():
-#         if value:
-#             state[key] = value
-
-#     session.state = state
-#     session.save()
-
-#     required = ["check_in", "check_out", "guests", "room_type", "name"]
-#     missing = [f for f in required if not state.get(f)]
-
-#     if missing:
-#         return f"May I know your {missing[0].replace('_',' ')}?"
-
-#     session.stage = "confirming"
-#     session.save()
-
-#     return (
-#         f"Just to confirm — {state['room_type']} from {state['check_in']} to {state['check_out']} "
-#         f"for {state['guests']} guest(s) under {state['name']}. "
-#         f"Should I confirm it?"
-#     )
-
-########################################################################3
-# def hotel_booking_strategy(agent, message, session):
-
-#     import json, re
-
-#     state = session.state or {}
-#     msg = message.lower().strip()
-
-#     # 🔹 1. Handle Completed
-#     if session.stage == "completed":
-#         if any(word in msg for word in ["thank", "thanks"]):
-#             return "You're most welcome. We look forward to hosting you."
-#         session.stage = None
-#         session.state = {}
-#         session.save()
-#         return information_strategy(agent, message, session)
-
-#     # 🔹 2. Handle Confirmation
-#     if session.stage == "confirming":
-
-#         confirm_prompt = f"""
-# Does this message confirm the booking?
-
-# Message: "{message}"
-
-# Return JSON:
-# {{ "confirm": true/false }}
-# """
-
-#         raw = generate_response(confirm_prompt, message)
-
-#         try:
-#             match = re.search(r"\{.*\}", raw, re.DOTALL)
-#             data = json.loads(match.group())
-#             confirmed = data.get("confirm", False)
-#         except:
-#             confirmed = False
-
-#         if confirmed:
-#             session.stage = "completed"
-#             session.state = {}
-#             session.save()
-#             return "Perfect. Your booking has been confirmed."
-
-#         session.stage = None
-#         session.state = {}
-#         session.save()
-#         return "No problem. Please share the updated booking details."
-
-#     # 🔹 3. Detect if booking intent exists
-#     intent_prompt = f"""
-# Is this message about booking a hotel room?
-
-# Return JSON:
-# {{ "booking": true/false }}
-
-# Message: "{message}"
-# """
-
-#     raw_intent = generate_response(intent_prompt, message)
-
-#     try:
-#         match = re.search(r"\{.*\}", raw_intent, re.DOTALL)
-#         intent_data = json.loads(match.group())
-#         booking_intent = intent_data.get("booking", False)
-#     except:
-#         booking_intent = False
-
-#     if not booking_intent and not state:
-#         return information_strategy(agent, message, session)
-
-#     # 🔹 4. Extract Booking Data
-#     extraction_prompt = f"""
-# You are a hotel booking data extractor.
-
-# Extract booking details carefully.
-
-# Rules:
-# - If user provides a date range like "4 March to 5 March",
-#   set check_in = 4 March
-#   set check_out = 5 March
-# - If user mentions only one date, assume it is check_in.
-# - If user mentions number of people, fill guests.
-# - If user mentions room type, fill room_type.
-# - If user mentions name, fill name.
-# - Do NOT guess missing fields.
-
-# Return JSON only:
-# {{
-#   "check_in": "",
-#   "check_out": "",
-#   "guests": "",
-#   "room_type": "",
-#   "name": ""
-# }}
-
-# Message: "{message}"
-# """
-#     # 🔹 4A — Deterministic Date Extraction Using dateparser
-
-#     parsed = search_dates(message)
-
-#     if parsed:
-#         if len(parsed) >= 1:
-#             state["check_in"] = parsed[0][1].strftime("%d %B")
-#         if len(parsed) >= 2:
-#             state["check_out"] = parsed[1][1].strftime("%d %B")
-#     raw = generate_response(extraction_prompt, message)
-
-#     try:
-#         match = re.search(r"\{.*\}", raw, re.DOTALL)
-#         extracted = json.loads(match.group())
-#     except:
-#         extracted = {}
-
-#     for key, value in extracted.items():
-#         if value and not state.get(key):
-#             state[key] = value
-#         session.state = state
-#     session.save()
-
-#     # 🔹 4.5 — Handle Info Interruption During Active Booking
-
-#     if state:  # booking already started
-
-#         info_check_prompt = f"""
-#     Is this message asking about hotel information like amenities,
-#     policies, timings, pricing, or facilities?
-
-#     Return JSON:
-#     {{ "info": true/false }}
-
-#     Message: "{message}"
-#     """
-
-#         raw_info = generate_response(info_check_prompt, message)
-
-#         try:
-#             match = re.search(r"\{.*\}", raw_info, re.DOTALL)
-#             info_data = json.loads(match.group())
-#             is_info = info_data.get("info", False)
-#         except:
-#             is_info = False
-
-#         if is_info:
-#             info_reply = information_strategy(agent, message, session)
-
-#             # Determine next missing field
-#             if not state.get("check_in"):
-#                 next_question = "What is your check-in date?"
-#             elif not state.get("check_out"):
-#                 next_question = "And your check-out date?"
-#             elif not state.get("guests"):
-#                 next_question = "How many guests will be staying?"
-#             elif not state.get("room_type"):
-#                 next_question = "Do you have a preferred room type?"
-#             elif not state.get("name"):
-#                 next_question = "May I have your name for the booking?"
-#             else:
-#                 return info_reply
-
-#             return f"{info_reply}\n\nNow, {next_question}"
-
-
-#     # 🔹 5. Natural Step-by-Step Flow
-
-#     if not state.get("check_in") and not state.get("check_out"):
-#         return "Of course. What are your check-in and check-out dates?"
-
-#     if not state.get("check_in"):
-#         return "When would you like to check in?"
-
-#     if not state.get("check_out"):
-#         return "And your check-out date?"
-
-#     if not state.get("guests"):
-#         return "How many guests will be staying?"
-
-#     if not state.get("room_type"):
-#         return "Do you have a preferred room type?"
-
-#     if not state.get("name"):
-#         return "May I have your name for the booking?"
-
-#     # 🔹 6. Confirmation
-#     session.stage = "confirming"
-#     session.save()
-
-#     return (
-#         f"Just to confirm — {state['room_type']} from {state['check_in']} "
-#         f"to {state['check_out']} for {state['guests']} guest(s) "
-#         f"under {state['name']}. Should I confirm it?"
-#     )
 ###############################################################################33
 
 def hotel_booking_strategy(agent, message, session):
@@ -1994,6 +1697,9 @@ Instructions:
 
 
 
+
+
+
 def recruitment_advisory_strategy(agent, message, session):
 
     import json, re
@@ -2003,98 +1709,394 @@ def recruitment_advisory_strategy(agent, message, session):
     msg = message.lower().strip()
     state = session.state or {}
 
+
+    if "screening_stage" not in state:
+        state["screening_stage"] = "intro"
+
+    if "screening_turns" not in state:
+        state["screening_turns"] = 0
+
+    state["screening_turns"] += 1
+    session.state = state
+    session.save()
     # =========================================================
-    # 1️⃣ Knowledge First (Job Details / Process)
+    # 0️⃣ IDENTITY QUESTIONS
     # =========================================================
 
-    context = retrieve_relevant_chunks(agent, message)
+    if any(q in msg for q in ["company name", "who are you", "about company"]):
+        return information_strategy(agent, message, session)
 
-    if context.strip():
-        system_prompt = f"""
-{agent.resolved_prompt}
+    # =========================================================
+    # 1️⃣ STRICT ROLE LOCK (TOP PRIORITY)
+    # =========================================================
 
-Relevant Recruitment Information:
-{context}
+    if state.get("active_role"):
+
+
+        # If already closed → stop responding further
+        if state.get("screening_stage") == "closed":
+            return "Thank you for your time. Our team will connect if shortlisted."
+
+        # 🔴 TERMINATION CHECK FIRST (before incrementing)
+        if state.get("screening_turns", 0) >= 4:
+
+            state["screening_stage"] = "closed"
+            session.state = state
+            session.save()
+
+            closing_prompt = f"""
+    You are an HR Recruiter at {agent.company_name}.
+
+    Politely conclude the screening conversation.
+
+    Instructions:
+    - Thank the candidate for sharing details.
+    - Mention that the profile will be reviewed internally.
+    - Do NOT guarantee selection.
+    - Do NOT sound robotic.
+    - Keep under 3 sentences.
+    - End conversation professionally.
+    """
+
+            return generate_response(closing_prompt, message)
+
+    # 🔹 If not terminating → continue screening
+
+        continuity_prompt = f"""
+You are an HR Recruiter at {agent.company_name}.
+
+Active Role: {state['active_role']}
+Previous Context: Candidate is being evaluated for this role.
+
+Candidate Message: "{message}"
 
 Instructions:
-- Answer clearly and professionally.
+- Assume this is a continuation of the same role discussion.
+- Stay strictly focused on the Active Role.
+- If candidate mentions projects, relate them to required skills.
+- If unclear, ask clarification question.
+- Do NOT mention other job roles.
+- Do NOT retrieve new roles.
+- Do NOT suggest resume submission yet.
 - Keep response under 3 sentences.
-- Do not invent job details.
+- Maintain natural recruiter tone.
 """
-        return generate_response(system_prompt, message)
+
+        return generate_response(continuity_prompt, message)
 
     # =========================================================
-    # 2️⃣ Extract Candidate Details (AI Based)
+    # 2️⃣ INITIAL DISCOVERY
     # =========================================================
 
-    extraction_prompt = f"""
-Extract candidate details from the message.
+    job_context = retrieve_relevant_chunks(agent, message)
+
+    if not job_context or not job_context.strip():
+        return "Could you share which role or technology you're interested in?"
+
+    # Extract detected role
+    role_extract_prompt = f"""
+From the job description below, extract the exact job title.
+
+Return JSON:
+{{ "role": "" }}
+
+Job Description:
+{job_context}
+"""
+
+    raw_role = generate_response(role_extract_prompt, job_context)
+
+    detected_role = None
+
+    try:
+        match = re.search(r"\{.*\}", raw_role, re.DOTALL)
+        role_data = json.loads(match.group())
+        detected_role = role_data.get("role")
+    except:
+        pass
+
+    if detected_role:
+        state["active_role"] = detected_role
+        state["screening_turns"] = 0
+        state["screening_stage"] = "screening"
+        session.state = state
+        session.save()
+
+    # Initial human response
+    system_prompt = f"""
+You are an HR Recruiter at {agent.company_name}.
+
+Job Information:
+{job_context}
+
+Instructions:
+- Introduce the relevant role naturally.
+- Do NOT list unrelated roles.
+- Do NOT push resume submission.
+- Keep response under 3 sentences.
+- Sound professional and conversational.
+"""
+
+    return generate_response(system_prompt, message)
+
+
+
+def hr_helpdesk_strategy(agent, message, session):
+
+    from knowledge.services.retriever import retrieve_relevant_chunks
+    from conversations.services.azure_openai_service import generate_response
+    import json, re
+
+    state = session.state or {}
+    msg = message.lower().strip()
+
+    # =========================================================
+    # 1️⃣ AI-Based Identity Detection
+    # =========================================================
+
+    classification_prompt = f"""
+Classify the message.
 
 Return JSON:
 {{
-  "skills": "",
-  "experience_years": "",
-  "preferred_role": "",
-  "location": ""
+  "type": "identity" OR "policy_query"
 }}
 
 Message: "{message}"
 """
 
-    raw = generate_response(extraction_prompt, message)
+    raw = generate_response(classification_prompt, message)
+
+    msg_type = "policy_query"
 
     try:
         match = re.search(r"\{.*\}", raw, re.DOTALL)
-        extracted = json.loads(match.group())
+        data = json.loads(match.group())
+        msg_type = data.get("type", "policy_query")
     except:
-        extracted = {}
+        pass
 
-    for key, value in extracted.items():
-        if value:
-            state[key] = value
-
-    session.state = state
-    session.save()
+    if msg_type == "identity":
+        return information_strategy(agent, message, session)
 
     # =========================================================
-    # 3️⃣ Ask Missing Key Info
+    # 2️⃣ Retrieve HR Policy Context
     # =========================================================
 
-    if not state.get("preferred_role"):
-        return "Could you tell me which role you’re interested in?"
+    context = retrieve_relevant_chunks(agent, message)
 
-    if not state.get("experience_years"):
-        return "How many years of relevant experience do you have?"
-
-    # =========================================================
-    # 4️⃣ Match With Available Roles
-    # =========================================================
-
-    query = f"Job opening for {state.get('preferred_role')} with {state.get('experience_years')} years experience"
-
-    job_context = retrieve_relevant_chunks(agent, query)
-
-    if not job_context.strip():
+    if not context or not context.strip():
         return (
-            "I don’t currently see an exact match for that experience level. "
-            "Would you like me to check similar openings?"
+            "This information is not mentioned in the official HR policy documents. "
+            "Please contact the HR department for further clarification."
         )
 
-    system_prompt = f"""
-You are an HR recruiter at {agent.company_name}.
+    # =========================================================
+    # 3️⃣ Generate Professional Response
+    # =========================================================
 
-Candidate Profile:
-{state}
+    final_prompt = f"""
+You are an HR Helpdesk Assistant at {agent.company_name}.
 
-Available Job:
-{job_context}
+Relevant HR Policy Information:
+{context}
+
+Employee Question:
+"{message}"
 
 Instructions:
-- Respond professionally.
-- Confirm eligibility if appropriate.
-- Explain next recruitment step briefly.
-- Keep under 3 sentences.
-- Do not guarantee selection.
+- Answer clearly and professionally.
+- Use only the provided HR policy information.
+- Do not interpret beyond policy.
+- Do not guarantee approvals.
+- Keep response between 2–4 sentences.
+- End with a natural professional closing offering assistance.
+- Do not repeat the question.
+- Do not use markdown or bullet formatting.
+- Maintain supportive and neutral tone.
+"""
+
+    return generate_response(final_prompt, message)
+
+
+
+
+def onboarding_support_strategy(agent, message, session):
+
+    from knowledge.services.retriever import retrieve_relevant_chunks
+    from conversations.services.azure_openai_service import generate_response
+    import json, re
+
+    state = session.state or {}
+    msg = message.lower().strip()
+
+    # =========================================================
+    # 1️⃣ Identity Handling (AI-based)
+    # =========================================================
+
+    classification_prompt = f"""
+Classify the message.
+
+Return JSON:
+{{
+  "type": "identity" OR "onboarding_query"
+}}
+
+Message: "{message}"
+"""
+
+    raw = generate_response(classification_prompt, message)
+
+    msg_type = "onboarding_query"
+
+    try:
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        data = json.loads(match.group())
+        msg_type = data.get("type", "onboarding_query")
+    except:
+        pass
+
+    if msg_type == "identity":
+        return information_strategy(agent, message, session)
+
+    # =========================================================
+    # 2️⃣ Retrieve Onboarding Context
+    # =========================================================
+
+    context = retrieve_relevant_chunks(agent, message)
+
+    if not context or not context.strip():
+        return (
+            "I currently do not see specific onboarding details related to that. "
+            "Please contact the HR team for further clarification."
+        )
+
+    # =========================================================
+    # 3️⃣ Generate Professional Humanized Response
+    # =========================================================
+
+    system_prompt = f"""
+You are an Onboarding Assistant at {agent.company_name}.
+
+Relevant Onboarding Information:
+{context}
+
+Candidate Question:
+"{message}"
+
+Instructions:
+- Answer clearly and professionally.
+- Use only the provided onboarding information.
+- Do not interpret beyond policy.
+- Do not guarantee joining confirmation or approvals.
+- Keep response between 2–4 sentences.
+- Maintain welcoming and supportive tone.
+- End with a natural offer of assistance.
+- Do not use bullet points or markdown formatting.
+"""
+
+    return generate_response(system_prompt, message)
+
+
+
+
+def customer_support_strategy(agent, message, session):
+
+    context = retrieve_relevant_chunks(agent, message)
+
+    system_prompt = f"""
+{agent.resolved_prompt}
+
+User Message:
+{message}
+
+Knowledge Base Context:
+{context}
+
+Instructions:
+- Answer the customer’s question clearly.
+- Use only the knowledge base if relevant information exists.
+- If the knowledge base does not contain the answer, politely say the information is unavailable.
+- Maintain a friendly and professional tone.
+- Keep the response under 3 sentences.
+"""
+
+    return generate_response(system_prompt, message)
+
+
+
+
+def complaint_handler_strategy(agent, message, session):
+
+    context = retrieve_relevant_chunks(agent, message)
+
+    system_prompt = f"""
+{agent.resolved_prompt}
+
+Customer Complaint:
+{message}
+
+Relevant Knowledge:
+{context}
+
+Instructions:
+- First acknowledge the customer's concern empathetically.
+- If knowledge context contains a solution, explain the next steps.
+- If resolution is unclear, guide the customer toward the proper support channel.
+- Do not invent company policies.
+- Keep response supportive and professional.
+- Maximum 3 sentences.
+"""
+
+    return generate_response(system_prompt, message)
+
+
+
+def returns_refund_strategy(agent, message, session):
+
+    context = retrieve_relevant_chunks(agent, message)
+
+    system_prompt = f"""
+{agent.resolved_prompt}
+
+Customer Query:
+{message}
+
+Return / Refund Policy Context:
+{context}
+
+Instructions:
+- Explain return or refund procedures clearly.
+- Use only the policy information provided.
+- If the policy does not contain the answer, state that the information is not available.
+- Do not invent refund conditions or timelines.
+- Keep the response concise and professional.
+"""
+
+    return generate_response(system_prompt, message)
+
+
+
+def escalation_manager_strategy(agent, message, session):
+
+    context = retrieve_relevant_chunks(agent, message)
+
+    system_prompt = f"""
+{agent.resolved_prompt}
+
+Customer Issue:
+{message}
+
+Relevant Context:
+{context}
+
+Instructions:
+- Review the issue and provide a professional response.
+- If the issue requires escalation, explain the escalation process clearly.
+- If resolution steps exist in the knowledge base, provide them.
+- Do not promise outcomes beyond your authority.
+- Maintain a calm and authoritative tone.
+- Keep response within 3 sentences.
 """
 
     return generate_response(system_prompt, message)

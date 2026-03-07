@@ -27,8 +27,8 @@ ROLE_STRATEGY_MAP = {
     #Recruitment Industry
 
     "HR Recruiter": "recruitment_advisory",
-    "Onboarding Assistant": "information",
-    "HR Helpdesk": "information",
+    "Onboarding Assistant": "onboarding_support",
+    "HR Helpdesk": "hr_helpdesk",
     
 
     #hospitality
