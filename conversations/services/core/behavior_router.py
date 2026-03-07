@@ -3,17 +3,13 @@
 ROLE_STRATEGY_MAP = {
     # 🔵 Healthcare Support Roles
     "Patient Support Agent": "support",
-    # Transaction Roles
     "Appointment Scheduler": "transaction",
-    "Hotel Room Booking Agent": "transaction",
-    "Restaurant Table Booking Agent": "transaction",
-   
-    "Returns & Refund Agent": "transaction",
- 
+
     #Real Estate
     "Loan Eligibility Assistant": "loan_financial",
     "Site Visit Scheduler": "transaction",
     "Property Inquiry Agent": "smart_real_estate",
+
     #Education
     "Admission Counselor": "information",
     "Course Advisor": "education_qualification",
@@ -35,6 +31,18 @@ ROLE_STRATEGY_MAP = {
     "Hotel Room Booking Agent": "hotel_booking",
     "Restaurant Table Booking Agent": "restaurant_booking",
     "Travel Agent & Trip Planner": "travel_planner",
+
+
+    # 🔵 Customer Service Industry
+    "Customer Support Executive": "customer_support",
+    "Complaint Handler": "complaint_handler",
+    "Returns & Refund Agent": "returns_refund",
+    "Escalation Manager": "escalation_manager",
+
+    # BFSI
+    "Insurance Advisor": "insurance_transaction",
+    "Mutual Funds Advisor": "mutual_fund_advisor",
+    "Investment Advisor": "investment_advisor",
     # Default → Information
 }
  

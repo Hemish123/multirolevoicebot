@@ -313,6 +313,9 @@ from conversations.services.core.strategies import (
     hr_helpdesk_strategy,
     identity_guard,
     information_strategy,
+    insurance_transaction_strategy,
+    investment_advisor_strategy,
+    mutual_fund_advisor_strategy,
     onboarding_support_strategy,
     transaction_strategy,
     qualification_strategy,
@@ -325,6 +328,10 @@ from conversations.services.core.strategies import (
     restaurant_booking_strategy,
     hotel_booking_strategy,
     recruitment_advisory_strategy,
+    customer_support_strategy,
+    complaint_handler_strategy,
+    returns_refund_strategy,
+    escalation_manager_strategy,
 )
  
  
@@ -385,33 +392,42 @@ def process_message(agent, message, session_id=None):
     # 2️⃣ Improved Rule-Based Intent Detection (FAST but smarter)
 
     msg_lower = message.lower().strip()
-
-    
     words = re.findall(r"\b\w+\b", msg_lower)
 
-    if any(greet in words for greet in ["hi", "hello", "hey", "start"]):
+    complaint_keywords = ["complaint", "not happy", "bad service"]
+    question_words = ["how", "what", "when", "why", "where", "can", "does", "do"]
+
+    # Greeting detection
+    if any(greet in words for greet in ["hi", "hello", "hey", "start"]) or msg_lower in [
+        "start conversation",
+        "start chat",
+        "begin"
+    ]:
         intent = "greeting"
-    elif any(word in msg_lower for word in ["complaint", "not happy", "bad service", "issue"]):
+
+    # Complaint detection
+    elif any(word in msg_lower for word in complaint_keywords) and not any(q in msg_lower for q in question_words):
         intent = "complaint"
 
+    # Appointment detection
     elif any(word in msg_lower for word in ["book", "appointment", "schedule"]):
         intent = "appointment_request"
 
-    # 🔹 Scholarship-related detection
+    # Scholarship
     elif any(word in msg_lower for word in [
         "scholarship", "percentage", "marks", "financial aid",
         "fee waiver", "eligible", "%"
     ]):
         intent = "scholarship_query"
 
-    # 🔹 Education career detection
+    # Education
     elif any(word in msg_lower for word in [
         "career", "course", "management", "engineering",
         "interested", "study", "admission"
     ]):
         intent = "education_query"
 
-    # 🔹 General information detection
+    # Information
     elif any(word in msg_lower for word in [
         "what", "which", "tell", "information", "service", "timing"
     ]):
@@ -442,12 +458,10 @@ def process_message(agent, message, session_id=None):
         print("⏱ Total Message Time:", time.time() - start_time)
         return reply, session_id
 
-    if intent == "complaint":
-        reply = "I'm sorry to hear that. Could you please provide more details so I can assist you better?"
-        session.stage = "handling_complaint"
-        session.save()
-        print("⏱ Total Message Time:", time.time() - start_time)
-        return reply, session_id
+    # if intent == "complaint":
+    #     reply = complaint_handler_strategy(agent, message, session)
+    #     print("⏱ Total Message Time:", time.time() - start_time)
+    #     return reply, session_id
 
     role_name = agent.role_template.role_name
     strategy_type = get_role_strategy(role_name)
@@ -505,6 +519,16 @@ def process_message(agent, message, session_id=None):
         # 3️⃣ Otherwise → treat as knowledge question
         else:
             reply = information_strategy(agent, message, session)
+
+    # 🛡️ Insurance Advisor Dedicated Flow
+    elif strategy_type == "insurance_transaction":
+        reply = insurance_transaction_strategy(agent, message, session)
+
+    elif strategy_type == "mutual_fund_advisor":
+        reply = mutual_fund_advisor_strategy(agent, message, session)
+
+    elif strategy_type == "investment_advisor":
+        reply = investment_advisor_strategy(agent, message, session)
  
     elif strategy_type == "support":
  
@@ -559,7 +583,17 @@ def process_message(agent, message, session_id=None):
     elif strategy_type == "information":
         reply = information_strategy(agent, message, session)
 
+    elif strategy_type == "customer_support":
+        reply = customer_support_strategy(agent, message, session)
 
+    elif strategy_type == "complaint_handler":
+        reply = complaint_handler_strategy(agent, message, session)
+
+    elif strategy_type == "returns_refund":
+        reply = returns_refund_strategy(agent, message, session)
+
+    elif strategy_type == "escalation_manager":
+        reply = escalation_manager_strategy(agent, message, session)
 
     elif strategy_type == "loan_financial":
         reply = loan_financial_strategy(agent, message, session)
