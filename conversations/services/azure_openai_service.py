@@ -68,18 +68,69 @@ client = AzureOpenAI(
 )
 
 
+# def generate_response(system_prompt, user_message):
+#     llm_start = time.time()  # ✅ start timer
+
+#     response = client.chat.completions.create(
+#         model=settings.AZURE_OPENAI_DEPLOYMENT,
+#         messages=[
+#             {"role": "system", "content": system_prompt},
+#             {"role": "user", "content": user_message},
+#         ],
+#         temperature=0.3,
+#     )
+
+#     print("⏱ LLM Time:", time.time() - llm_start)  # ✅ log time
+
+#     return response.choices[0].message.content
+
+
+
+
+from openai import AzureOpenAI, BadRequestError
+from django.conf import settings
+import time
+
+client = AzureOpenAI(
+    api_key=settings.AZURE_OPENAI_API_KEY,
+    azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+    api_version=settings.AZURE_OPENAI_API_VERSION,
+)
+
 def generate_response(system_prompt, user_message):
-    llm_start = time.time()  # ✅ start timer
 
-    response = client.chat.completions.create(
-        model=settings.AZURE_OPENAI_DEPLOYMENT,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ],
-        temperature=0.3,
-    )
+    llm_start = time.time()
 
-    print("⏱ LLM Time:", time.time() - llm_start)  # ✅ log time
+    try:
 
-    return response.choices[0].message.content
+        response = client.chat.completions.create(
+            model=settings.AZURE_OPENAI_DEPLOYMENT,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            temperature=0.3,
+        )
+
+        print("⏱ LLM Time:", time.time() - llm_start)
+
+        return response.choices[0].message.content
+
+    except BadRequestError as e:
+
+        print("⚠ Azure Content Filter Triggered:", e)
+
+        # fallback response (safe for all industries)
+        return (
+            "I'm sorry, I didn't quite understand what you meant. "
+            "Could you please explain it in simpler words?"
+        )
+
+    except Exception as e:
+
+        print("⚠ LLM ERROR:", e)
+
+        return (
+            "I'm sorry, something went wrong while processing your request. "
+            "Could you please try asking again?"
+        )

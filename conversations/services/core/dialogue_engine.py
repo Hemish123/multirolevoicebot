@@ -302,9 +302,9 @@
 
 
 
-from knowledge.services.retriever import retrieve_relevant_chunks
-from conversations.services.azure_openai_service import generate_response
-from conversations.services.core.intent_classifier import classify_intent
+# from knowledge.services.retriever import retrieve_relevant_chunks
+# from conversations.services.azure_openai_service import generate_response
+# from conversations.services.core.intent_classifier import classify_intent
 from conversations.models import ConversationSession
 import uuid
 from conversations.services.core.behavior_router import get_role_strategy
@@ -398,20 +398,126 @@ def process_message(agent, message, session_id=None):
     question_words = ["how", "what", "when", "why", "where", "can", "does", "do"]
 
     # Greeting detection
-    if any(greet in words for greet in ["hi", "hello", "hey", "start"]) or msg_lower in [
-        "start conversation",
-        "start chat",
-        "begin"
-    ]:
-        intent = "greeting"
+    greeting_keywords = [
+    "hi",
+    "hello",
+    "hey",
+    "start",
+    "start conversation",
+    "start chat",
+    "begin",
+    "good morning",
+    "good evening"
+    ]
+#chnage after chnages========
+    service_keywords = [
+    "department", "departments",
+    "specialty", "specialties",
+    "service", "services",
+    "clinic", "clinics",
+    "treatment", "treatments"
+
+    ]
+    booking_phrases = [
+    "book appointment",
+    "schedule appointment",
+    "make appointment",
+    "i want appointment",
+    "i need appointment",
+    "i want to book",
+    "schedule a visit"
+    ]
+
+    update_phrases = [
+    "update appointment",
+    "change appointment",
+    "modify appointment",
+    "reschedule appointment",
+    "update the appointment",
+    "change the date",
+    "update the date",
+    "reschedule"
+    ]
+    #================================ 
+    exit_phrases = [
+        "bye", "goodbye", "ok bye", "okay bye", "bye bye",
+        "thanks", "thank you", "thank you so much",
+        "thanks a lot", "thanks for helping",
+        "thank you for helping",
+        "appreciate it",
+        "that is all", "thats all", "that's all",
+        "no thanks", "no thank you",
+        "done", "im done", "i am done",
+        "nothing else", "thats it", "that's it",
+        "all set", "perfect thanks",
+        "great thanks", "ok thanks", "okay thanks"
+    ]
+
+    if any(word in msg_lower for word in exit_phrases):
+
+        session.stage = None
+        session.state = {}
+        session.current_intent = "conversation_end"
+        session.save()
+
+        reply = (
+            f"You're welcome!\n\n"
+            f"Thank you to connect with {agent.company_name or agent.name}. "
+            f"If you need assistance again, feel free to start a new conversation."
+        )
+
+        print("⏱ Total Message Time:", time.time() - start_time)
+        return reply, session_id
+    
+    words = re.findall(r"\b\w+\b", msg_lower)
+
+    
+    # 🔹 Bot wellbeing detection (NEW)
+    if any(phrase in msg_lower for phrase in [
+        "how are you",
+        "how are you doing",
+        "how are you today",
+        "how's it going",
+        "how are things"
+    ]):
+        intent = "bot_wellbeing"
+    
+    # Greeting detection
+    # elif any(word in msg_lower for word in greeting_keywords):
+    #     intent = "greeting"
+
+    elif any(word in greeting_keywords for word in words):
+
+        # If message only contains greeting → treat as greeting
+        if len(words) <= 2:
+            intent = "greeting"
+
+        # If greeting + real sentence → ignore greeting and continue classification
+        else:
+            msg_lower = re.sub(
+                r'^(hi|hello|hey|good morning|good evening)\s+', 
+                '', 
+                msg_lower
+            )
+            words = re.findall(r"\b\w+\b", msg_lower)
+            intent = "general_query"
 
     # Complaint detection
     elif any(word in msg_lower for word in complaint_keywords) and not any(q in msg_lower for q in question_words):
         intent = "complaint"
 
     # Appointment detection
-    elif any(word in msg_lower for word in ["book", "appointment", "schedule"]):
+    # elif any(word in msg_lower for word in ["book", "appointment", "schedule"]):
+    #     intent = "appointment_request"
+
+    #change after testing=================
+
+    elif any(phrase in msg_lower for phrase in booking_phrases):
         intent = "appointment_request"
+
+    elif any(phrase in msg_lower for phrase in update_phrases):
+        intent = "appointment_update"
+    #=====================================
 
     # Scholarship
     elif any(word in msg_lower for word in [
@@ -428,8 +534,18 @@ def process_message(agent, message, session_id=None):
         intent = "education_query"
 
     # Information
+    # elif any(word in msg_lower for word in [
+    #     "what", "which", "tell", "information", "service", "timing"
+    # ]):
+    #     intent = "information_request"
+
+    #chnage after testing=============
     elif any(word in msg_lower for word in [
-        "what", "which", "tell", "information", "service", "timing"
+        "what", "which", "tell", "information",
+        "service", "services",
+        "department", "departments",
+        "specialty", "specialties",
+        "timing"
     ]):
         intent = "information_request"
 
@@ -448,13 +564,53 @@ def process_message(agent, message, session_id=None):
 
     # 3️⃣ GLOBAL ROUTER (Intent-Level)
 
-    identity_reply = identity_guard(agent, message)
-    if identity_reply:
-        print("⏱ Total Message Time:", time.time() - start_time)
-        return identity_reply, session_id
+    # identity_reply = identity_guard(agent, message)
+    # if identity_reply:
+    #     print("⏱ Total Message Time:", time.time() - start_time)
+    #     return identity_reply, session_id
 
-    if intent == "greeting" and not session.stage and not session.state:
-        reply = f"Hello! Welcome to {agent.company_name or agent.name}. How can I assist you today?"
+    #after testing changes=============
+    # Skip identity guard for service/department queries
+    is_service_query = any(word in service_keywords for word in words)
+
+    if not is_service_query:
+        identity_reply = identity_guard(agent, message)
+        if identity_reply:
+            print("⏱ Total Message Time:", time.time() - start_time)
+            return identity_reply, session_id
+
+
+    print("AGENT SUMMARY FROM DB:", agent.summary)
+    if intent == "greeting" and not session.state.get("intro_shown"):
+
+        role_name = agent.role_template.role_name if agent.role_template else "assistant"
+
+        summary = agent.summary or ""
+
+        reply = f"""
+    Hello! I'm the {role_name} at {agent.company_name or agent.name}.
+
+    {summary}
+
+    How can I assist you today?
+    """
+
+        # mark intro shown so it never repeats
+        state = session.state or {}
+        state["intro_shown"] = True
+        session.state = state
+        session.save()
+
+        print("⏱ Total Message Time:", time.time() - start_time)
+
+        return reply.strip(), session_id
+    
+    if intent == "bot_wellbeing":
+        reply = (
+            f"I'm doing well, thank you for asking!\n\n"
+            f"I'm here to help you with {agent.company_name or agent.name} services. "
+            f"How can I assist you today?"
+        )
         print("⏱ Total Message Time:", time.time() - start_time)
         return reply, session_id
 
@@ -502,18 +658,38 @@ def process_message(agent, message, session_id=None):
     # elif strategy_type == "transaction":
     elif strategy_type == "transaction" and role_name != "Site Visit Scheduler":
         # 1️⃣ If booking flow is currently active → continue it
-        if session.stage in ["collecting_name","collecting_date", "collecting_time", "confirming"]:
+        if session.stage in ["collecting_name","collecting_date", "collecting_time", "confirming","completed"]:
             reply = transaction_strategy(agent, message, session)
  
         # 2️⃣ If user explicitly wants to book → start transaction
-        elif (
-            intent == "appointment_request"
-            or any(word in message.lower() for word in ["book", "appointment", "schedule"])
-        ):
+        # elif (
+        #     intent == "appointment_request"
+        #     or any(word in message.lower() for word in ["book", "appointment", "schedule"])
+        # ):
+        # 2️⃣ If user explicitly wants to book OR update → start transaction
             # Reset previous state
-            session.stage = None
-            session.state = {}
+            # session.stage = None
+            # session.state = {}
+            # session.save()
+            # reply = transaction_strategy(agent, message, session)
+            #==change after testing
+
+        elif (
+            intent in ["appointment_request", "appointment_update"]
+            or any(word in message.lower() for word in ["book", "appointment", "schedule", "update", "change", "reschedule"])
+        ):
+
+            if intent == "appointment_update":
+                session.stage = "collecting_date"
+                state = session.state or {}
+                state.pop("date", None)
+                state.pop("time", None)
+                session.state = state
+                session.save()
+
+            session.stage = None if intent == "appointment_request" else session.stage
             session.save()
+
             reply = transaction_strategy(agent, message, session)
  
         # 3️⃣ Otherwise → treat as knowledge question

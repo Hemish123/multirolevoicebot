@@ -49,6 +49,8 @@ class VoiceAgent(models.Model):
 
     name = models.CharField(max_length=100)
     company_name = models.CharField(max_length=100, blank=True)
+    # ✅ ADD THIS
+    summary = models.TextField(blank=True, null=True)
 
     api_key = models.UUIDField(default=uuid.uuid4, unique=True)
     is_demo = models.BooleanField(default=False)

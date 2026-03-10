@@ -398,9 +398,196 @@ from conversations.services.azure_openai_service import generate_response
 import dateparser
 import re
 from dateparser.search import search_dates
+from datetime import datetime, timedelta
+import json
  
+#==changes after testing=========================
+# 🔹 ADD THESE FUNCTIONS HERE
+
+from datetime import datetime, timedelta
+import re
+
+def normalize_datetime(message):
+
+    msg = message.lower().strip()
+
+    # remove punctuation
+    msg = re.sub(r"[^\w\s]", "", msg)
+
+    # ---- ordinal word conversion ----
+
+    ordinal_map = {
+        "first": "1",
+        "second": "2",
+        "third": "3",
+        "fourth": "4",
+        "fifth": "5",
+        "sixth": "6",
+        "seventh": "7",
+        "eighth": "8",
+        "ninth": "9",
+        "tenth": "10"
+    }
+
+    for word, num in ordinal_map.items():
+        if word in msg:
+            msg = msg.replace(word, num)
+    
+    # remove st/nd/rd/th
+    msg = re.sub(r"(\d+)(st|nd|rd|th)", r"\1", msg)
+
+    today = datetime.now()
+
+    # 🔹 Time detection FIRST
+    time_map = {
+        "morning": "09:00",
+        "afternoon": "14:00",
+        "evening": "18:00",
+        "night": "20:00"
+    }
+
+    for word, value in time_map.items():
+        if word in msg:
+            return {"date": None, "time": value}
+
+    # ---- relative day handling ----
+
+    if "day after tomorrow" in msg:
+        return {"date": (today + timedelta(days=2)).strftime("%Y-%m-%d"), "time": None}
+
+    if "tomorrow" in msg:
+        return {"date": (today + timedelta(days=1)).strftime("%Y-%m-%d"), "time": None}
+
+    if "today" in msg:
+        return {"date": today.strftime("%Y-%m-%d"), "time": None}
+    
+
+    # ---- after X days handling ----
+
+    # numeric days like "after 3 days", "in 5 days"
+    match = re.search(r"(after|in)\s+(\d+)\s+day", msg)
+    if match:
+        days = int(match.group(2))
+        date = today + timedelta(days=days)
+        return {"date": date.strftime("%Y-%m-%d"), "time": None}
+
+    match = re.search(r"(after|in)\s+(\d+)\s+days", msg)
+    if match:
+        days = int(match.group(2))
+        date = today + timedelta(days=days)
+        return {"date": date.strftime("%Y-%m-%d"), "time": None}
 
 
+    # word numbers like "after two days"
+    word_numbers = {
+        "one":1, "two":2, "three":3, "four":4, "five":5,
+        "six":6, "seven":7, "eight":8, "nine":9, "ten":10
+    }
+
+    for word, num in word_numbers.items():
+        if f"after {word} day" in msg or f"after {word} days" in msg:
+            date = today + timedelta(days=num)
+            return {"date": date.strftime("%Y-%m-%d"), "time": None}
+
+    # ---- weekday handling ----
+
+    weekdays = {
+        "monday": 0,
+        "tuesday": 1,
+        "wednesday": 2,
+        "thursday": 3,
+        "friday": 4,
+        "saturday": 5,
+        "sunday": 6
+    }
+
+    for day, idx in weekdays.items():
+
+        if f"next {day}" in msg:
+            days_ahead = (idx - today.weekday()) + 7
+            date = today + timedelta(days=days_ahead)
+            return {"date": date.strftime("%Y-%m-%d"), "time": None}
+
+        elif day in msg:
+            days_ahead = idx - today.weekday()
+            if days_ahead <= 0:
+                days_ahead += 7
+            date = today + timedelta(days=days_ahead)
+            return {"date": date.strftime("%Y-%m-%d"), "time": None}
+
+    # ---- month date parsing ----
+
+    try:
+        parsed = datetime.strptime(msg, "%d %B")
+        parsed = parsed.replace(year=today.year)
+        return {"date": parsed.strftime("%Y-%m-%d"), "time": None}
+    except:
+        pass
+
+    try:
+        parsed = datetime.strptime(msg, "%d %b")
+        parsed = parsed.replace(year=today.year)
+        return {"date": parsed.strftime("%Y-%m-%d"), "time": None}
+    except:
+        pass
+
+    return {"date": None, "time": None}
+#======================================================
+
+def validate_appointment_slot(date_str, time_str):
+    try:
+        dt = datetime.strptime(date_str + " " + time_str, "%Y-%m-%d %H:%M")
+    except:
+        return False, "invalid"
+
+    if dt < datetime.now():
+        return False, "past"
+
+    if dt.hour < 9 or dt.hour > 18:
+        return False, "closed"
+
+    if dt.weekday() == 6:
+        return False, "closed"
+
+    return True, "valid"
+
+
+# def identity_guard(agent, message):
+#     """
+#     Intercepts identity-related questions BEFORE any strategy logic.
+#     Returns a response string if handled, otherwise None.
+#     """
+
+#     msg = message.lower().strip()
+
+#     identity_phrases = [
+#         "who are you",
+#         "what is your name",
+#         "introduce yourself",
+#         "tell me about you",
+#         "what do you do"
+#     ]
+
+#     if any(p in msg for p in identity_phrases):
+#         system_prompt = f"""
+# {agent.resolved_prompt}
+
+# User is asking about your identity.
+
+# Instructions:
+# - Introduce yourself clearly.
+# - Mention your role and company.
+# - Do NOT start any sales, qualification, or booking flow.
+# - Keep response to 2–3 sentences.
+# - Sound human and professional.
+# """
+#         return generate_response(system_prompt, message)
+
+#     return None
+
+
+
+#after testing changes===========
 def identity_guard(agent, message):
     """
     Intercepts identity-related questions BEFORE any strategy logic.
@@ -408,6 +595,21 @@ def identity_guard(agent, message):
     """
 
     msg = message.lower().strip()
+
+    # 🔹 NEW: service/domain keywords to bypass identity guard
+    service_keywords = [
+        "department", "departments",
+        "service", "services",
+        "specialty", "specialties",
+        "clinic", "clinics",
+        "treatment", "treatments",
+        "doctor", "doctors",
+        "hospital", "facility"
+    ]
+
+    # If user is asking about hospital services → skip identity guard
+    if any(word in msg for word in service_keywords):
+        return None
 
     identity_phrases = [
         "who are you",
@@ -433,13 +635,16 @@ Instructions:
         return generate_response(system_prompt, message)
 
     return None
- 
+
+
+#/////////////////////////////////////////////////////////////////////////
+
 def information_strategy(agent, message, session):
     context = retrieve_relevant_chunks(agent, message)
 
     if not context:
         context = ""
-
+    msg = message.lower()
     # 🟢 If general capability question → allow natural response
     general_questions = [
         "who are you",
@@ -450,7 +655,16 @@ def information_strategy(agent, message, session):
         "about you"
     ]
 
-    if any(q in message.lower() for q in general_questions):
+
+    service_keywords = [
+    "department", "departments",
+    "service", "services",
+    "specialty", "specialties",
+    "doctor", "doctors",
+    "clinic", "clinics"
+    ]
+
+    if any(q in msg for q in general_questions) and not any(k in msg for k in service_keywords):
         system_prompt = f"""
 {agent.resolved_prompt}
 
@@ -470,7 +684,7 @@ Keep it conversational.
     if not context.strip():
         return (
             "At the moment, I don’t have matching details for that request. "
-            "If you need any other infromation tell me."
+            "If you need any other information tell me."
         )
 
     # 🟢 Normal knowledge response
@@ -502,7 +716,42 @@ def transaction_strategy(agent, message, session):
  
     state = session.state or {}
     msg = message.lower()
- 
+
+    #change after testing====================
+    # 🔄 Update request after booking
+    if session.stage == "completed" and any(word in msg for word in ["update","change","modify","reschedule"]):
+
+        state = session.state or {}
+
+        # Keep patient name, only reset date/time
+        if "date" in state:
+            del state["date"]
+
+        if "time" in state:
+            del state["time"]
+
+        session.state = state
+        session.stage = "collecting_date"
+        session.save()
+
+        return "Sure, I can help update your appointment. What new date would you prefer?"
+    #==========================================
+    
+    #changes after testing=================================================
+
+    # 🔴 Cancel / Stop booking flow
+    if any(word in msg for word in ["cancel", "stop", "exit", "quit"]):
+        session.stage = None
+        session.state = {}
+        session.save()
+        return "Okay, I've cancelled the appointment booking process. Let me know if you need anything else."
+
+    # 🔄 Reschedule request
+    if "reschedule" in msg:
+        session.stage = "collecting_date"
+        session.save()
+        return "Sure, let's reschedule your appointment. What new date would you prefer?"
+    #======================================================================
     # 🔹 Handle polite closing after completion
     if session.stage == "completed":
         if any(word in msg for word in ["thank", "thanks", "ok", "okay"]):
@@ -515,9 +764,11 @@ def transaction_strategy(agent, message, session):
         return information_strategy(agent, message, session)
  
     # 🔹 STEP 1 — Collect Patient Name
-    if not state.get("patient_name"):
+    # if not state.get("patient_name"):
+    if not state.get("patient_name") and session.stage != "collecting_date":
         if session.stage == "collecting_name":
-            state["patient_name"] = message.strip()
+            name = re.sub(r"(my name is|i am|myself|this is|my name|i|my self is)", "", message.lower()).strip()
+            state["patient_name"] = name.title()
             session.state = state
             session.stage = "collecting_date"
             session.save()
@@ -530,16 +781,55 @@ def transaction_strategy(agent, message, session):
     # 🔹 STEP 2 — Collect Preferred Date
     if not state.get("date"):
         if session.stage == "collecting_date":
-            state["date"] = message.strip()
+            # state["date"] = message.strip()
+            #change after testing=======================================
+            # slot = normalize_datetime(message)
+
+            # if not slot["date"] or not slot["time"]:
+            slot = normalize_datetime(message) or {"date": None, "time": None}
+
+             # ❌ If date not detected
+            if not slot.get("date"):
+                return "I couldn't understand the appointment date. Could you please tell me the date?"
+
+            # ✔ Date detected but time missing
+            if slot.get("date") and not slot.get("time"):
+                state["date"] = slot["date"]
+                session.state = state
+                session.stage = "collecting_time"
+                session.save()
+                return "Got it. What time would you prefer for the appointment?"
+
+            # ✔ Date + Time detected together
+            is_valid, reason = validate_appointment_slot(slot["date"], slot["time"])
+
+            if not is_valid:
+
+                if reason == "past":
+                    return "That date has already passed. Please choose a future appointment date."
+
+                if reason == "closed":
+                    return "Our clinic operates between 9 AM and 6 PM. Please choose a valid appointment time."
+
+                if reason == "invalid":
+                    return "That doesn't look like a valid appointment slot."
+
+            state["date"] = slot["date"]
+            state["time"] = slot["time"]
+
             session.state = state
-            session.stage = "collecting_time"
+            session.stage = "confirming"
             session.save()
-            return "Got it. Do you have a preferred time slot?"
- 
+
+            return (
+                f"Just to confirm, the appointment is for {state['patient_name']} "
+                f"on {state['date']} at {state['time']}. Should I proceed?"
+            )
+
         session.stage = "collecting_date"
         session.save()
         return "Please let me know your preferred appointment date."
- 
+    
     # 🔹 STEP 3 — Collect Preferred Time
     if not state.get("time"):
         if session.stage == "collecting_time":
@@ -560,20 +850,42 @@ def transaction_strategy(agent, message, session):
  
     # 🔹 STEP 4 — Confirmation
     if session.stage == "confirming":
-        if "yes" in msg:
+
+        confirm_words = [
+            "yes", "yeah", "yup", "ok", "okay",
+            "sure", "correct", "proceed",
+            "confirm", "go ahead"
+        ]
+
+        cancel_words = [
+            "no", "cancel", "change",
+            "reschedule", "modify"
+        ]
+
+        msg_clean = msg.strip().lower()
+
+        # confirmation
+        if any(word in msg_clean for word in confirm_words):
+
             session.stage = "completed"
             session.state = {}
             session.save()
+
             return (
                 "Your appointment has been scheduled successfully. "
-                "We look forward to seeing you. If you need to make any changes, just let me know."
+                "We look forward to seeing you."
             )
-        else:
+
+        # cancellation / modification
+        if any(word in msg_clean for word in cancel_words):
+
             session.stage = "collecting_date"
             session.save()
+
             return "No problem. Let's update the details. What new date would you prefer?"
- 
-    return "How can I assist you further?"
+
+        # unclear answer
+        return "Please confirm by saying yes or no."
  
  
  
@@ -670,38 +982,102 @@ Offer it softly at the end.
 
  
  
-def classify_medical_case(agent, message):
+# def classify_medical_case(agent, message):
  
+#     system_prompt = f"""
+# You are a medical triage classifier.
+ 
+# Hospital Specialty: {agent.company_name}
+ 
+# Return JSON only in this format:
+ 
+# {{
+#   "severity": "emergency | urgent | mild | informational",
+#   "domain_relevance": "in_scope | out_of_scope"
+# }}
+ 
+# Rules:
+# - emergency = life-threatening symptoms (chest pain, breathing difficulty, unconsciousness, heavy bleeding)
+# - urgent = needs doctor soon
+# - mild = minor symptom
+# - informational = service question
+# """
+ 
+#     response = generate_response(system_prompt, message)
+ 
+#     import json
+#     try:
+#         return json.loads(response)
+#     except:
+#         return {
+#             "severity": "informational",
+#             "domain_relevance": "in_scope"
+#         }
+ 
+def classify_medical_case(agent, message):
+
+    import json
+    import re
+
+    # 🔹 Prompt-injection guard (non-breaking)
+    injection_patterns = [
+        "ignore previous",
+        "ignore instruction",
+        "disregard previous",
+        "override system",
+        "forget instructions",
+        "act as"
+    ]
+
+    msg_lower = message.lower()
+
+    if any(p in msg_lower for p in injection_patterns):
+        return {
+            "severity": "informational",
+            "domain_relevance": "in_scope"
+        }
+
     system_prompt = f"""
 You are a medical triage classifier.
- 
+
 Hospital Specialty: {agent.company_name}
- 
+
 Return JSON only in this format:
- 
+
 {{
   "severity": "emergency | urgent | mild | informational",
   "domain_relevance": "in_scope | out_of_scope"
 }}
- 
+
 Rules:
 - emergency = life-threatening symptoms (chest pain, breathing difficulty, unconsciousness, heavy bleeding)
 - urgent = needs doctor soon
 - mild = minor symptom
 - informational = service question
 """
- 
-    response = generate_response(system_prompt, message)
- 
-    import json
+
+    # 🔹 Protect LLM call
     try:
-        return json.loads(response)
-    except:
+        response = generate_response(system_prompt, message)
+    except Exception:
         return {
             "severity": "informational",
             "domain_relevance": "in_scope"
         }
- 
+
+    # 🔹 Extract JSON safely (LLMs sometimes add text)
+    try:
+        json_match = re.search(r"\{.*\}", response, re.DOTALL)
+        if json_match:
+            return json.loads(json_match.group())
+        else:
+            raise ValueError("No JSON found")
+
+    except Exception:
+        return {
+            "severity": "informational",
+            "domain_relevance": "in_scope"
+        }
  
 def support_strategy(agent, message, session):
  
@@ -819,7 +1195,11 @@ def site_visit_transaction_strategy(agent, message, session):
 
     # STEP 5 — Confirmation
     if session.stage == "confirming":
-        if "yes" in msg:
+
+        # if "yes" in msg:
+        confirm_words = ["yes", "yeah", "yup", "ok", "okay", "sure", "correct", "proceed"]
+
+        if any(word in msg for word in confirm_words):
             session.stage = "completed"
             session.state = {}
             session.save()
@@ -2393,629 +2773,207 @@ Instructions:
 
 def escalation_manager_strategy(agent, message, session):
 
+    import re
+
+    # -----------------------------------------
+    # Initialize session memory
+    # -----------------------------------------
+
+    if session.state is None:
+        session.state = {}
+
+    state = session.state
+
+    # Conversation memory
+    history = state.get("conversation_history", [])
+
+    history.append({"role": "user", "content": message})
+
+    # keep last 6 messages
+    history = history[-6:]
+
+    state["conversation_history"] = history
+
+    conversation_context = "\n".join(
+        [f"{h['role']}: {h['content']}" for h in history]
+    )
+
+    session.state = state
+    session.save()
+
+    # -----------------------------------------
+    # Retrieve knowledge context
+    # -----------------------------------------
+
     context = retrieve_relevant_chunks(agent, message)
+
+    # -----------------------------------------
+    # If KB contains answer → respond with AI
+    # -----------------------------------------
+
+    if context:
+
+        prompt = f"""
+You are {agent.name}, the Escalation Manager at {agent.company_name}.
+
+Knowledge Base:
+{context}
+
+Conversation History:
+{conversation_context}
+
+User Message:
+{message}
+
+Instructions:
+- Answer using the knowledge base.
+- Do not repeat questions already answered.
+- Ask only one question at a time if additional details are required.
+- Be professional and concise.
+"""
+
+        reply = generate_response(agent.resolved_prompt, prompt)
+
+        history.append({"role": "assistant", "content": reply})
+        state["conversation_history"] = history
+        session.state = state
+        session.save()
+
+        return reply
+
+    # -----------------------------------------
+    # Escalation Information Collection Flow
+    # -----------------------------------------
+
+    msg = message.strip()
+
+    state.setdefault("issue_description", None)
+    state.setdefault("customer_name", None)
+    state.setdefault("contact_number", None)
+    state.setdefault("order_number", None)
+    state.setdefault("asked_fields", [])
+
+    # Store answers based on previous question
+
+    if state["asked_fields"]:
+
+        last_question = state["asked_fields"][-1]
+
+        if last_question == "issue_description" and not state["issue_description"]:
+            state["issue_description"] = msg
+
+        elif last_question == "customer_name" and not state["customer_name"]:
+            state["customer_name"] = msg
+
+        elif last_question == "contact_number" and not state["contact_number"]:
+            if re.search(r"\d{8,15}", msg):
+                state["contact_number"] = msg
+
+        elif last_question == "order_number" and not state["order_number"]:
+            state["order_number"] = msg
+
+    session.state = state
+    session.save()
+
+    # -----------------------------------------
+    # Ask next missing detail
+    # -----------------------------------------
+
+    if not state["issue_description"]:
+
+        state["asked_fields"].append("issue_description")
+        session.save()
+
+        reply = "I'm sorry you're experiencing an issue. Could you briefly describe the problem?"
+
+    elif not state["customer_name"]:
+
+        state["asked_fields"].append("customer_name")
+        session.save()
+
+        reply = "Thank you for explaining the issue. May I have your name?"
+
+    elif not state["contact_number"]:
+
+        state["asked_fields"].append("contact_number")
+        session.save()
+
+        reply = "Could you please provide a contact number so our escalation manager can reach you?"
+
+    elif not state["order_number"]:
+
+        state["asked_fields"].append("order_number")
+        session.save()
+
+        reply = "If this issue relates to an order, please provide the order number or type 'none'."
+
+    else:
+
+        reply = (
+            "Thank you for providing the details. "
+            "Your issue has been escalated to our escalation team. "
+            "A support manager will review the case and contact you shortly."
+        )
+
+    # -----------------------------------------
+    # Save assistant response in memory
+    # -----------------------------------------
+
+    history.append({"role": "assistant", "content": reply})
+
+    state["conversation_history"] = history
+
+    session.state = state
+    session.save()
+
+    return reply
+
+def insurance_transaction_strategy(agent, message, session):
+
+    from knowledge.services.retriever import retrieve_relevant_chunks
+    from conversations.services.azure_openai_service import generate_response
+
+    msg = message.lower()
+
+    # =====================================================
+    # STEP 1 — RETRIEVE KNOWLEDGE FROM DOCUMENT
+    # =====================================================
+
+    context = retrieve_relevant_chunks(agent, message)
+
+    # =====================================================
+    # STEP 2 — BUILD SYSTEM PROMPT
+    # =====================================================
 
     system_prompt = f"""
 {agent.resolved_prompt}
 
-Customer Issue:
-{message}
+You are an Insurance Advisor for {agent.company_name}.
 
-Relevant Context:
+Use ONLY the knowledge document provided below to guide the user.
+
+Knowledge Context:
 {context}
 
 Instructions:
-- Review the issue carefully.
-- If the knowledge base provides resolution steps, explain them clearly.
-- If escalation is required, explain the escalation process professionally.
-- Do not promise outcomes outside your authority.
-- Maintain a confident and professional tone.
-- Maximum 3 sentences.
+- Follow the conversation flows defined in the document.
+- Ask the next step based on the flow.
+- Provide clear options when available.
+- If the user asks about claims, benefits, or policy terms, answer from the document.
+- Do NOT invent information outside the document.
+- Do NOT guarantee claims or returns.
+- Encourage consultation with a licensed advisor when necessary.
+
+Conversation Rules:
+- Keep answers short (2–3 sentences).
+- When multiple options exist, present them clearly.
 """
 
+    # =====================================================
+    # STEP 3 — GENERATE RESPONSE
+    # =====================================================
+
     return generate_response(system_prompt, message)
-
-
-
-def insurance_transaction_strategy(agent, message, session):
-
-    from conversations.services.core.strategies import information_strategy
-
-    state = session.state or {}
-    msg = message.lower().strip()
-
-    # =====================================================
-    # 🔹 INSURANCE INFORMATION REQUEST DETECTION (NEW)
-    # =====================================================
-
-    info_request_words = [
-        "know", "information", "info", "details",
-        "explain", "tell me about", "about",
-        "what is", "how does", "guide"
-    ]
-
-    flow_request_words = [
-        "want", "need", "buy", "get", "apply",
-        "purchase", "take", "start"
-    ]
-
-    insurance_keywords = [
-        "health insurance",
-        "car insurance",
-        "vehicle insurance",
-        "term insurance",
-        "life insurance"
-    ]
-
-    # If user asking for insurance knowledge (not buying)
-    if any(word in msg for word in info_request_words) and any(ins in msg for ins in insurance_keywords):
-
-        return information_strategy(agent, message, session)
-
-
-    # =====================================================
-    # 🔹 DOCUMENT KNOWLEDGE MODE (NEW ADDITION)
-    # =====================================================
-
-    document_intent_keywords = [
-        "what information",
-        "which information",
-        "kind of information",
-        "what kind of information",
-        "which information do ypu have",
-        "which kind of information",
-        "what do you know",
-        "what do you have",
-        "what services",
-        "what policies",
-        "summarize",
-        "summarize the document",
-        "give me summary",
-        "summary",
-        "explain",
-        "details",
-        "tell me about",
-        "about the policy",
-        "policy information"
-    ]
-
-    if any(keyword in msg for keyword in document_intent_keywords):
-
-        # If user asked while inside flow
-        if session.stage and session.stage != "insurance_menu":
-            answer = information_strategy(agent, message, session)
-            return f"{answer}\n\nWould you like to continue where we left off?"
-        
-        return information_strategy(agent, message, session)
-
-    # =====================================================
-    # 🔹 FLOW INTERRUPTION HANDLER (NEW ADDITION)
-    # =====================================================
-
-    insurance_knowledge_keywords = [
-        "coverage", "premium", "waiting", "claim",
-        "benefit", "exclusion", "hospital",
-        "cashless", "document", "renewal",
-        "maternity", "network", "process"
-    ]
-
-    # If inside any active flow stage and user asks knowledge question
-    active_flow_stages = [
-        "health_member_type", "health_age", "health_cover",
-        "term_cover_for", "term_age",
-        "car_requirement",
-        "insurance_lead_capture"
-    ]
-
-    if session.stage in active_flow_stages:
-        if any(word in msg for word in insurance_knowledge_keywords):
-
-            answer = information_strategy(agent, message, session)
-
-            return (
-                f"{answer}\n\n"
-                "Shall we continue where we left off?"
-            )
-
-    # =====================================================
-    # HANDLE CONFIRM SWITCH FIRST
-    # =====================================================
-
-    if session.stage == "confirm_switch":
-
-        switch_to = state.get("switch_to")
-        previous_stage = state.get("previous_stage")
-
-        if msg in ["yes", "y"]:
-            session.state = {"product": switch_to}
-            session.stage = None
-            session.save()
-            return insurance_transaction_strategy(agent, switch_to, session)
-
-        elif msg in ["no", "n"]:
-            session.stage = previous_stage
-            session.save()
-            return "No problem, we’ll continue with your current selection."
-
-        else:
-            return "Please reply with Yes or No."
-
-    # =====================================================
-    # DETECT PRODUCT FROM MESSAGE
-    # =====================================================
-
-    detected_product = None
-
-    if any(word in msg for word in ["car", "vehicle", "renew", "new car"]):
-        detected_product = "car"
-
-    elif any(word in msg for word in ["health", "medical", "hospital"]):
-        detected_product = "health"
-
-    elif any(word in msg for word in ["term", "life insurance", "life cover"]):
-        detected_product = "term"
-
-    current_product = state.get("product")
-
-    # Mid-flow switch detection
-    if detected_product and current_product and detected_product != current_product:
-
-        state["switch_to"] = detected_product
-        state["previous_stage"] = session.stage
-        session.state = state
-        session.stage = "confirm_switch"
-        session.save()
-
-        return (
-            f"You're currently in {current_product.capitalize()} Insurance flow.\n\n"
-            f"Would you like to switch to {detected_product.capitalize()} Insurance? (Yes/No)"
-        )
-
-    # =====================================================
-    # SMART INITIAL ENTRY
-    # =====================================================
-
-    if not state.get("product") or session.stage is None or session.stage == "completed":
-
-        if detected_product == "car":
-            session.stage = "car_requirement"
-            session.state = {"product": "car"}
-            session.save()
-
-            return (
-                "Please choose one of the following options:\n"
-                " New Car Insurance,\n"
-                " Renew Existing Policy,\n"
-                " Claim Assistance"
-            )
-
-        elif detected_product == "health":
-
-            # Smart member detection from first message
-            member_type = None
-
-            if "family" in msg:
-                member_type = "Family"
-            elif "parents" in msg:
-                member_type = "Parents"
-            elif "spouse" in msg:
-                member_type = "Self + Spouse"
-            elif "self" in msg:
-                member_type = "Self"
-
-            session.state = {"product": "health"}
-
-            # If member type already mentioned → skip asking again
-            if member_type:
-                session.state["member_type"] = member_type
-                session.stage = "health_age"
-                session.save()
-
-                return (
-                    "Please select the age of the eldest member:\n"
-                    " 18 - 25,\n"
-                    " 26 - 35,\n"
-                    " 36 - 45,\n"
-                    " 46 - 55,\n"
-                    " 56 - 65,\n"
-                    " Above 65"
-                )
-
-            # Otherwise ask normally
-            session.stage = "health_member_type"
-            session.save()
-
-            return (
-                "Who would you like to insure?\n"
-                " Self,\n"
-                " Self + Spouse,\n"
-                " Family (2–4 members),\n"
-                " Parents,\n"
-                " Complete Family"
-            )
-
-        elif detected_product == "term":
-            session.stage = "term_cover_for"
-            session.state = {"product": "term"}
-            session.save()
-
-            return (
-                "Who is this policy for?\n\n"
-                "Self,\n"
-                "Spouse\n"
-            )
-
-        # If nothing detected → show menu
-        if not state.get("product"):
-            session.stage = "insurance_menu"
-            session.save()
-
-            return (
-                f" Welcome to {agent.company_name}\n"
-                "I can help you with:\n"
-                " Health Insurance,\n"
-                " Car Insurance,\n"
-                " Term Life Insurance\n"
-            )
-
-    # =====================================================
-    # MASTER MENU
-    # =====================================================
-
-    if session.stage == "insurance_menu":
-
-        if msg in ["1", "health", "health insurance"]:
-            session.stage = "health_member_type"
-            session.state = {"product": "health"}
-            session.save()
-
-            return (
-                "Who would you like to insure?\n"
-                "Self,\n"
-                "Self + Spouse,\n"
-                "Family,\n"
-                "Parents,\n"
-                "Complete Family\n"
-            )
-
-        elif msg in ["2", "car", "car insurance"]:
-            session.stage = "car_requirement"
-            session.state = {"product": "car"}
-            session.save()
-
-            return (
-                "Please select:\n\n"
-                "New Car Insurance,\n"
-                "Renew Existing Policy,\n"
-                "Claim Assistance"
-            )
-
-        elif msg in ["3", "term", "life", "term life insurance"]:
-            session.stage = "term_cover_for"
-            session.state = {"product": "term"}
-            session.save()
-
-            return (
-                "Who is this policy for?\n\n"
-                "Self,\n"
-                "Spouse"
-            )
-
-        elif msg in ["4", "advisor", "talk"]:
-            session.stage = "insurance_lead_capture"
-            session.state = {"product": "advisor"}
-            session.save()
-
-            return "Please share your Name to connect with an advisor."
-
-        else:
-            return "Please select a valid option (1-4)."
-
-    # =====================================================
-    # HEALTH FLOW
-    # =====================================================
-
-    if session.stage == "health_member_type":
-        state["member_type"] = message
-        session.stage = "health_age"
-        session.state = state
-        session.save()
-
-        return (
-            "Please select age of the eldest member:\n"
-            "18 - 25,\n"
-            "26 - 35,\n"
-            "36 - 45,\n"
-            "46 - 55,\n"
-            "56 - 65,\n"
-            "Above 65"
-        )
-
-    if session.stage == "health_age":
-        state["age_band"] = message
-        session.stage = "health_cover"
-        session.state = state
-        session.save()
-
-        return (
-            "Select preferred sum insured:\n"
-            "3 - 5 Lakh,\n"
-            "5 - 10 Lakh,\n"
-            "10 - 25 Lakh,\n"
-            "Above 25 Lakh"
-        )
-
-    if session.stage == "health_cover":
-        state["coverage"] = message
-        session.stage = "insurance_lead_capture"
-        session.state = state
-        session.save()
-
-        return "Almost done! Please share your Name."
-    
-    # =====================================================
-    # 🚗 CAR FLOW (NEW LOGIC ADDED)
-    # =====================================================
-
-    if session.stage == "car_requirement":
-
-        state["requirement"] = message.strip()
-        session.stage = "car_vehicle_details"
-        session.state = state
-        session.save()
-
-        return (
-            "Please share your car registration number.\n"
-            "Or provide the following details:\n"
-            " Brand Name,\n"
-            " Model,\n"
-            " Fuel Type,\n"
-            " Manufacturing Year"
-        )
-
-    if session.stage == "car_vehicle_details":
-
-        state["vehicle_details"] = message.strip()
-        session.stage = "car_policy_status"
-        session.state = state
-        session.save()
-
-        return (
-            " What is your current policy status?\n\n"
-        )
-
-    if session.stage == "car_policy_status":
-
-        state["policy_status"] = message.strip()
-        session.stage = "car_plan_type"
-        session.state = state
-        session.save()
-
-        return (
-            "Which type of insurance plan do you prefer?\n\n"
-            " Third Party,\n"
-            " Comprehensive"
-        )
-
-    if session.stage == "car_plan_type":
-
-        state["plan_type"] = message.strip()
-        session.stage = "car_addons"
-        session.state = state
-        session.save()
-
-        return (
-            "Would you like to add any add-ons?\n\n"
-            " Zero Depreciation,\n"
-            " Engine Protection,\n"
-            " Roadside Assistance,\n"
-            " Return to Invoice,\n"
-            " NCB Protection"
-        )
-
-    if session.stage == "car_addons":
-
-        state["addons"] = message.strip()
-        session.stage = "car_previous_claim"
-        session.state = state
-        session.save()
-
-        return "Have you made any claims in the previous year? (Yes/No)"
-
-    if session.stage == "car_previous_claim":
-
-        state["previous_claim"] = message.strip()
-        session.stage = "insurance_lead_capture"
-        session.state = state
-        session.save()
-
-        return "Almost done! Please share your Name to get the best premium."
-
-    # =====================================================
-    # TERM LIFE INSURANCE FLOW
-    # =====================================================
-
-    if session.stage == "term_cover_for":
-
-        state["cover_for"] = message.strip()
-        session.stage = "term_age"
-        session.state = state
-        session.save()
-
-        return (
-            "Please select your age group:\n\n"
-            "18 - 25,\n"
-            "26 - 30,\n"
-            "31 - 35,\n"
-            "36 - 40,\n"
-            "41 - 45,\n"
-            "46 - 50,\n"
-            "Above 50"
-        )
-
-
-    if session.stage == "term_age":
-
-        state["age"] = message.strip()
-        session.stage = "term_income"
-        session.state = state
-        session.save()
-
-        return (
-            "Select your preferred sum insured:\n\n"
-            " 3 - 5 Lakh,\n"
-            " 5 - 10 Lakh,\n"
-            " 10 - 25 Lakh,\n"
-            " above 25 Lakh"
-        )
-
-
-    if session.stage == "term_income":
-
-        state["income"] = message.strip()
-        session.stage = "term_coverage"
-        session.state = state
-        session.save()
-
-        return (
-            "How much life cover would you like?\n\n"
-            "50 Lakh,\n"
-            "1 Crore,\n"
-            "1.5 Crore,\n"
-            "above 2 Crore"
-        )
-
-
-    if session.stage == "term_coverage":
-
-        state["coverage"] = message.strip()
-        session.stage = "term_duration"
-        session.state = state
-        session.save()
-
-        return (
-            "How long would you like the policy to last?\n\n"
-            "Till age 60,\n"
-            "Till age 65,\n"
-            "Till age 70,\n"
-            "Whole life coverage"
-        )
-
-
-    if session.stage == "term_duration":
-
-        state["duration"] = message.strip()
-        session.stage = "term_smoker"
-        session.state = state
-        session.save()
-
-        return "Do you smoke or consume tobacco? (Yes / No)"
-
-
-    if session.stage == "term_smoker":
-
-        state["smoker"] = message.strip()
-        session.stage = "term_riders"
-        session.state = state
-        session.save()
-
-        return (
-            "Would you like to add extra protection?\n"
-            "Available riders:\n"
-            "Critical illness rider,\n"
-            "Accidental death benefit,\n"
-            "Waiver of premium,\n"
-            "Income payout option\n"
-            "You can choose one or multiple riders."
-        )
-
-
-    if session.stage == "term_riders":
-
-        state["riders"] = message.strip()
-        session.stage = "term_summary"
-        session.state = state
-        session.save()
-
-        return (
-            "Here is a quick summary of your selection:\n\n"
-            f"Cover For: {state.get('cover_for')}\n"
-            f"Age Group: {state.get('age')}\n"
-            f"Annual Income: {state.get('income')}\n"
-            f"Coverage Amount: {state.get('coverage')}\n"
-            f"Policy Duration: {state.get('duration')}\n"
-            f"Smoker: {state.get('smoker')}\n"
-            f"Riders: {state.get('riders')}\n\n"
-            "If everything looks good, please share your Name to generate your personalized quote."
-        )
-
-
-    if session.stage == "term_summary":
-
-        state["name"] = message.strip()
-        session.stage = "insurance_lead_phone"
-        session.state = state
-        session.save()
-
-        return "Please share your Phone Number."
-
-
-    if session.stage == "insurance_lead_phone":
-
-        state["phone"] = message.strip()
-        session.stage = "insurance_lead_email"
-        session.state = state
-        session.save()
-
-        return "Please share your Email address."
-
-
-    if session.stage == "insurance_lead_email":
-
-        state["email"] = message.strip()
-        session.stage = "completed"
-        session.state = state
-        session.save()
-
-        return (
-            " Thank you for choosing our Term Life Insurance service.\n\n"
-            "Your request has been recorded and our insurance advisor will contact you shortly "
-            "with the best plan and premium details.\n\n"
-            "Your family's financial protection is our priority."
-        )
-
-    # =====================================================
-    # LEAD CAPTURE
-    # =====================================================
-
-    if session.stage == "insurance_lead_capture":
-
-        if not state.get("name"):
-            state["name"] = message.strip()
-            session.state = state
-            session.save()
-            return "Please share your Phone Number."
-
-        if not state.get("phone"):
-            state["phone"] = message.strip()
-            session.state = state
-            session.save()
-            return "Please share your Email address."
-
-        if not state.get("email"):
-            state["email"] = message.strip()
-            session.stage = "completed"
-            session.state = state
-            session.save()
-
-            return (
-                " Thank you for choosing us!\n\n"
-                "We’re preparing the best insurance plan for you.\n"
-                "Our expert will connect with you shortly."
-            )
-
-    return "How can I assist you further?"
-
 
 
 # def insurance_transaction_strategy(agent, message, session):

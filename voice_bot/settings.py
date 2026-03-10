@@ -37,7 +37,6 @@ SECRET_KEY = 'django-insecure-*7s*aaz)wrq!lexszd)#u*k!f^uv^imr70+j)7rk-xhq8*l(5k
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
-
 ALLOWED_HOSTS = ["*","multivoicebot-d3eyanb4h2g4crhh.centralindia-01.azurewebsites.net"]
 
 
