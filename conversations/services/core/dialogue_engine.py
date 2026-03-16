@@ -392,8 +392,27 @@ def process_message(agent, message, session_id=None):
     #     agent=agent,
     #     session_id=session_id
     # )
+    #web socket
+    # agent = VoiceAgent.objects.get(id=agent)
 
-    agent = VoiceAgent.objects.get(id=agent)
+    from agents.models import VoiceAgent
+
+    # Resolve agent safely
+    if isinstance(agent, VoiceAgent):
+        agent_instance = agent
+
+    elif isinstance(agent, str):
+        try:
+            # try UUID lookup
+            agent_instance = VoiceAgent.objects.get(id=agent)
+        except Exception:
+            # fallback: lookup by name
+            agent_instance = VoiceAgent.objects.get(name=agent)
+
+    else:
+        raise ValueError("Invalid agent value")
+
+    agent = agent_instance
 
     session, _ = ConversationSession.objects.get_or_create(
         agent=agent,
