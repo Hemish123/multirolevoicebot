@@ -17,9 +17,9 @@ ROLE_STRATEGY_MAP = {
     "Student Help Desk": "education_support",
 
     # Qualification Roles
-    "Sales Executive": "information",
-    "Lead Qualifier": "information",
-    "Product Demo Agent": "information",
+    "Sales Executive": "sales",
+    "Lead Qualifier": "lead_qualification",
+    "Product Demo Agent": "product_demo",
     #Recruitment Industry
 
     "HR Recruiter": "recruitment_advisory",

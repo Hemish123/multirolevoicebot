@@ -315,8 +315,11 @@ from conversations.services.core.strategies import (
     information_strategy,
     insurance_transaction_strategy,
     investment_advisor_strategy,
+    lead_qualification_strategy,
     mutual_fund_advisor_strategy,
     onboarding_support_strategy,
+    product_demo_strategy,
+    sales_strategy,
     transaction_strategy,
     qualification_strategy,
     support_strategy,
@@ -332,8 +335,9 @@ from conversations.services.core.strategies import (
     complaint_handler_strategy,
     returns_refund_strategy,
     escalation_manager_strategy,
+    university_identity_guard,
 )
- 
+from agents.models import VoiceAgent
  
 # def process_message(agent, message, session_id=None):
  
@@ -383,6 +387,13 @@ def process_message(agent, message, session_id=None):
     # 1️⃣ Create or Load Session
     if not session_id:
         session_id = str(uuid.uuid4())
+
+    # session, _ = ConversationSession.objects.get_or_create(
+    #     agent=agent,
+    #     session_id=session_id
+    # )
+
+    agent = VoiceAgent.objects.get(id=agent)
 
     session, _ = ConversationSession.objects.get_or_create(
         agent=agent,
@@ -453,7 +464,7 @@ def process_message(agent, message, session_id=None):
         "great thanks", "ok thanks", "okay thanks"
     ]
 
-    if any(word in msg_lower for word in exit_phrases):
+    if any(msg_lower == phrase or msg_lower.startswith(phrase) for phrase in exit_phrases):
 
         session.stage = None
         session.state = {}
@@ -528,8 +539,18 @@ def process_message(agent, message, session_id=None):
 
     # Education
     elif any(word in msg_lower for word in [
-        "career", "course", "management", "engineering",
-        "interested", "study", "admission"
+        "career",
+        "course",
+        "management",
+        "engineering",
+        "study",
+        "admission",
+        "deadline",
+        "last date",
+        "apply date",
+        "application deadline",
+        "closing date",
+        "submission date"
     ]):
         intent = "education_query"
 
@@ -578,6 +599,12 @@ def process_message(agent, message, session_id=None):
         if identity_reply:
             print("⏱ Total Message Time:", time.time() - start_time)
             return identity_reply, session_id
+        
+        # 🔹 NEW: University identity guard (prevents adopting fake universities)
+        uni_guard = university_identity_guard(agent, message)
+        if uni_guard:
+            print("⏱ Total Message Time:", time.time() - start_time)
+            return uni_guard, session_id
 
 
     print("AGENT SUMMARY FROM DB:", agent.summary)
@@ -756,8 +783,14 @@ def process_message(agent, message, session_id=None):
     elif strategy_type == "onboarding_support":
         reply = onboarding_support_strategy(agent, message, session)
 
-    elif strategy_type == "information":
-        reply = information_strategy(agent, message, session)
+    elif strategy_type == "sales":
+        reply = sales_strategy(agent, message, session)
+
+    elif strategy_type == "lead_qualification":
+        reply = lead_qualification_strategy(agent, message, session)
+
+    elif strategy_type == "product_demo":
+        reply = product_demo_strategy(agent, message, session)
 
     elif strategy_type == "customer_support":
         reply = customer_support_strategy(agent, message, session)
@@ -796,6 +829,11 @@ def process_message(agent, message, session_id=None):
 
     elif strategy_type == "travel_planner":
             reply = travel_planner_strategy(agent, message, session)
+
+    # 🔹 Safety fallback
+    if 'reply' not in locals():
+        reply = information_strategy(agent, message, session)
+
 
     return reply, session_id
 

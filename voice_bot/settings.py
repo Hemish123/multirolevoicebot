@@ -70,6 +70,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
+    "channels", 
+
     "agents",
     "knowledge",
     "conversations",
@@ -115,6 +117,16 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'voice_bot.wsgi.application'
+
+#for wesocket
+ASGI_APPLICATION = "voice_bot.asgi.application"
+
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
 
 
 # Database
@@ -218,6 +230,8 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=3),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
 }
+
+
 
 # =========================
 # DJANGO ERROR LOG FILE (PRODUCTION)

@@ -368,31 +368,6 @@
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 from knowledge.services.retriever import retrieve_relevant_chunks
 from conversations.services.azure_openai_service import generate_response
 import dateparser
@@ -534,6 +509,93 @@ def normalize_datetime(message):
     return {"date": None, "time": None}
 #======================================================
 
+def rewrite_user_query(message):
+
+    msg = message.lower()
+
+    # 🔹 Course name normalization for better retrieval
+    course_map = {
+        "bcom": "B.Com",
+        "bba": "BBA",
+        "mba": "MBA",
+        "bsc": "B.Sc",
+        "ba": "B.A"
+    }
+
+    for k, v in course_map.items():
+        if k in msg:
+            return v + " course eligibility fee admission"
+
+    if "cheapest" in msg or "lowest fee" in msg:
+        return "course with lowest fee tuition"
+
+    if "most expensive" in msg:
+        return "course with highest fee"
+
+    prompt = f"""
+Rewrite the user question so it is clearer for knowledge retrieval.
+
+Rules:
+- Keep meaning same
+- Make it concise
+- Do not add new information
+
+User message:
+{message}
+"""
+
+    try:
+        rewritten = generate_response(prompt, message)
+        return rewritten.strip()
+    except:
+        return message
+
+
+
+def llm_intent_clarifier(message):
+
+    prompt = f"""
+Classify the user's message intent.
+
+Return ONLY one of these words:
+
+information
+demo
+sales
+qualification
+general
+
+Message:
+{message}
+"""
+
+    try:
+        intent = generate_response(prompt, message)
+        return intent.strip().lower()
+    except:
+        return "general"
+
+
+
+def normalize_course_names(text):
+
+    # Replace dot pronunciation
+    text = re.sub(r"\bB\.?\s*dot\s*com\b", "B Com", text, flags=re.IGNORECASE)
+
+    # Replace B.Com variations
+    text = re.sub(r"\bB\.?\s*Com\b", "B Com", text, flags=re.IGNORECASE)
+
+    # Other course formats
+    text = re.sub(r"\bB\.?\s*A\b", "B A", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bB\.?\s*Sc\b", "B Sc", text, flags=re.IGNORECASE)
+
+    return text
+
+
+
+
+#==========================================================
+
 def validate_appointment_slot(date_str, time_str):
     try:
         dt = datetime.strptime(date_str + " " + time_str, "%Y-%m-%d %H:%M")
@@ -637,14 +699,51 @@ Instructions:
     return None
 
 
+def university_identity_guard(agent, message):
+
+    import re
+
+    msg = message.lower()
+
+    # Detect university mentions
+    university_pattern = r"(?:university|college|institute)\s+[a-zA-Z]+|[a-zA-Z]+\s+(?:university|college|institute)"
+
+    matches = re.findall(university_pattern, msg)
+
+    if not matches:
+        return None
+
+    agent_uni = (agent.company_name or "").lower()
+
+    for uni in matches:
+        if agent_uni not in uni.lower():
+            return (
+                f"I can only provide scholarship information for {agent.company_name}. "
+                "For other universities, please contact their admissions office."
+            )
+
+    return None
+
+
 #/////////////////////////////////////////////////////////////////////////
 
 def information_strategy(agent, message, session):
-    context = retrieve_relevant_chunks(agent, message)
 
-    if not context:
-        context = ""
+    rewritten_query = rewrite_user_query(message)
+    context = retrieve_relevant_chunks(agent, rewritten_query)
+
+    # fallback retrieval
+    if not context.strip():
+        context = retrieve_relevant_chunks(agent, message)
+
     msg = message.lower()
+
+    is_cheapest_query = any(word in msg for word in [
+        "cheapest",
+        "lowest fee",
+        "least fee",
+        "minimum fee"
+    ])
     # 🟢 If general capability question → allow natural response
     general_questions = [
         "who are you",
@@ -678,7 +777,8 @@ Respond naturally and confidently about:
 Do NOT mention document limitation.
 Keep it conversational.
 """
-        return generate_response(system_prompt, message)
+        reply = generate_response(system_prompt, message)
+        return normalize_course_names(reply)
 
     # 🔴 If no relevant context found for property-specific question
     if not context.strip():
@@ -686,6 +786,32 @@ Keep it conversational.
             "At the moment, I don’t have matching details for that request. "
             "If you need any other information tell me."
         )
+    
+    # cheapest course logic
+    if is_cheapest_query:
+
+        system_prompt = f"""
+{agent.resolved_prompt}
+
+Knowledge Context:
+{context}
+
+User Question:
+{message}
+
+Instructions:
+- Identify courses and their fees.
+- Compare the fees.
+- Tell which course has the lowest fee.
+- Keep response under 2 sentences.
+
+Formatting Rules:
+- Write course names exactly as: BCA, BBA, B.Com, MBA, MCA
+- Never write "B dot com"
+"""
+
+        reply = generate_response(system_prompt, message)
+        return normalize_course_names(reply)
 
     # 🟢 Normal knowledge response
     system_prompt = f"""
@@ -693,6 +819,12 @@ Keep it conversational.
 
 Knowledge Context:
 {context}
+
+
+Formatting Rules:
+- Write course names exactly as: BCA, BBA, B.Com, MBA, MCA
+- Never write "B dot com"
+
 
 Respond in a short, natural tone.
 Maximum 2–3 sentences.
@@ -702,7 +834,9 @@ Be direct and helpful.
 Do not hallucinate.
 """
 
-    return generate_response(system_prompt, message)
+    reply = generate_response(system_prompt, message)
+    reply = normalize_course_names(reply)
+    return reply
  
  
 
@@ -1079,43 +1213,128 @@ Rules:
             "domain_relevance": "in_scope"
         }
  
+# def support_strategy(agent, message, session):
+ 
+#     case = classify_medical_case(agent, message)
+ 
+#     severity = case.get("severity")
+#     domain = case.get("domain_relevance")
+ 
+#     # Emergency
+#     if severity == "emergency":
+#         return (
+#             "⚠️ This may require urgent medical attention. "
+#             "Please visit the emergency department or contact emergency services immediately."
+#         )
+ 
+#     # Out of scope
+#     if domain == "out_of_scope":
+#         return (
+#             f"This concern appears outside the specialty of {agent.company_name}. "
+#             "It would be best to consult the appropriate specialist or a general hospital."
+#         )
+ 
+#     # Urgent
+#     if severity == "urgent":
+#         return (
+#             "This seems important and should be evaluated by a doctor soon. "
+#             "Would you like me to help you book an appointment?"
+#         )
+ 
+#     # Mild
+#     if severity == "mild":
+#         return (
+#             "This doesn’t sound urgent, but it’s still a good idea to consult a doctor if it continues. "
+#             "Would you like assistance scheduling a visit?"
+#         )
+ 
+#     # Default → informational
+#     return information_strategy(agent, message, session)
+
+
 def support_strategy(agent, message, session):
- 
-    case = classify_medical_case(agent, message)
- 
-    severity = case.get("severity")
-    domain = case.get("domain_relevance")
- 
-    # Emergency
-    if severity == "emergency":
-        return (
-            "⚠️ This may require urgent medical attention. "
-            "Please visit the emergency department or contact emergency services immediately."
-        )
- 
-    # Out of scope
-    if domain == "out_of_scope":
-        return (
-            f"This concern appears outside the specialty of {agent.company_name}. "
-            "It would be best to consult the appropriate specialist or a general hospital."
-        )
- 
-    # Urgent
-    if severity == "urgent":
-        return (
-            "This seems important and should be evaluated by a doctor soon. "
-            "Would you like me to help you book an appointment?"
-        )
- 
-    # Mild
-    if severity == "mild":
-        return (
-            "This doesn’t sound urgent, but it’s still a good idea to consult a doctor if it continues. "
-            "Would you like assistance scheduling a visit?"
-        )
- 
-    # Default → informational
-    return information_strategy(agent, message, session)
+
+    state = session.state or {}
+
+    # -------------------------------
+    # 1️⃣ Knowledge Base Check (NEW)
+    # -------------------------------
+
+    context = retrieve_relevant_chunks(agent, message)
+
+    if context and context.strip():
+
+        system_prompt = f"""
+{agent.resolved_prompt}
+
+You are a healthcare assistant for {agent.company_name}.
+
+Knowledge Context:
+{context}
+
+User Question:
+{message}
+
+Instructions:
+- Answer using the knowledge context.
+- Respond naturally and professionally.
+- Maximum 2–3 sentences.
+- Do not mention "knowledge base".
+"""
+
+        return generate_response(system_prompt, message)
+
+    system_prompt = f"""
+You are a compassionate healthcare support assistant for {agent.company_name}.
+
+Your role:
+- Understand patient symptoms
+- Provide helpful health guidance
+- Suggest doctor consultation when needed
+
+Safety rules:
+- Never diagnose diseases
+- Never prescribe medicines
+- Only give general advice
+
+Conversation memory:
+{state}
+
+User message:
+{message}
+
+Return JSON:
+
+{{
+ "symptoms": [],
+ "response": ""
+}}
+
+Rules:
+- Extract symptoms mentioned
+- Use previous conversation context
+- Respond naturally like a human healthcare assistant
+- Keep response under 3 sentences
+"""
+
+    raw = generate_response(system_prompt, message)
+
+    import json, re
+
+    try:
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        data = json.loads(match.group())
+    except:
+        data = {"symptoms": [], "response": "Could you tell me more about your symptoms?"}
+
+    # store symptoms in memory
+    if data.get("symptoms"):
+        previous = state.get("symptoms", [])
+        state["symptoms"] = list(set(previous + data["symptoms"]))
+        session.state = state
+        session.save()
+
+    return data.get("response")
 
 
 
@@ -1322,6 +1541,9 @@ Rules:
     return information_strategy(agent, message, session)
 
 
+
+
+
 def education_qualification_strategy(agent, message, session):
 
     state = session.state or {}
@@ -1336,7 +1558,7 @@ def education_qualification_strategy(agent, message, session):
     extraction_prompt = f"""
 You are an academic advisor assistant.
 
-Extract structured student information from the message.
+Extract the student's career interest and education background.
 
 Return JSON only:
 
@@ -1346,9 +1568,10 @@ Return JSON only:
 }}
 
 Rules:
-- career_interest = desired career field
-- education_level = 12th | graduation | unknown
-- Do not explain.
+- career_interest should reflect the field or domain (example: marketing, business, engineering, medicine, computer science)
+- education_level must be one of: 12th, graduation, unknown
+- If student mentions a degree (BBA, BCA etc), infer education_level = graduation
+- If unclear, leave fields empty
 """
 
     profile_response = generate_response(extraction_prompt, message)
@@ -1366,7 +1589,7 @@ Rules:
 
     # 🔹 Store extracted values
     if profile.get("career_interest"):
-        state["interest"] = profile["career_interest"]
+        state["interest"] = profile["career_interest"].lower().strip()
 
     if profile.get("education_level"):
         state["background"] = profile["education_level"]
@@ -1380,10 +1603,21 @@ Rules:
 
     # 🔹 STEP 2 — CHECK PROGRAM EXISTENCE (Scope Awareness)
 
-    scope_query = f"Programs related to {state['interest']}"
+    scope_prompt = f"""
+Generate search keywords for university programs related to this field.
+
+Field:
+{state['interest']}
+
+Return a short search query.
+"""
+
+    # scope_query = generate_response(scope_prompt, message)
+    scope_query = generate_response(scope_prompt, message).strip().replace('"', '')
+
     scope_context = retrieve_relevant_chunks(agent, scope_query)
 
-    if not scope_context:
+    if not scope_context or len(scope_context) < 30:
         return (
             "At the moment, we do not offer programs in that field. "
             "Would you like to explore the courses currently available at our university?"
@@ -1395,8 +1629,67 @@ Rules:
 
     # 🔹 STEP 3 — Retrieve best matching course dynamically
 
-    query = f"Best course for {state['interest']} after {state['background']}"
-    context = retrieve_relevant_chunks(agent, query)
+    query_prompt = f"""
+Generate a semantic search query to retrieve university programs.
+
+Student Interest: {state['interest']}
+Education Level: {state['background']}
+
+Include:
+- related courses
+- specializations
+- higher studies progression
+
+Return a short search query.
+"""
+
+    # semantic_query = generate_response(query_prompt, message)
+    semantic_query = generate_response(query_prompt, message).strip().replace('"', '')
+
+
+    context = retrieve_relevant_chunks(agent, semantic_query)
+
+    relevance_prompt = f"""
+    Check whether the available programs match the student's interest.
+
+    Student Interest:
+    {state['interest']}
+
+    Programs:
+    {context}
+
+    Return JSON:
+    {{
+    "relevant": true or false
+    }}
+    """
+
+    # check = generate_response(relevance_prompt, message)
+    relevant = True
+
+    if context:
+        check = generate_response(relevance_prompt, message)
+
+        try:
+            match = re.search(r"\{.*\}", check, re.DOTALL)
+            data = json.loads(match.group())
+            relevant = data.get("relevant", True)
+        except:
+            relevant = True
+
+
+    try:
+        match = re.search(r"\{.*\}", check, re.DOTALL)
+        data = json.loads(match.group())
+        relevant = data.get("relevant", True)
+    except:
+        relevant = True
+
+    if not relevant:
+        return (
+            "At the moment, we do not offer programs directly related to that field. "
+            "Would you like to explore the courses currently available at our university?"
+        )
 
     if not context:
         return (
@@ -1416,12 +1709,13 @@ Available Programs:
 {context}
 
 Instructions:
-- Suggest ONLY the most relevant program.
-- Maximum 3 sentences.
-- No marketing language.
-- No long explanation.
+- Identify programs most aligned with the student's interest.
+- If a specialization exists (example: Marketing under MBA), mention it.
+- Suggest maximum 2 programs.
+- Only suggest programs explicitly mentioned in the Available Programs section.
+- If no relevant program exists, say the university does not offer one.
+- Keep the response under 3 sentences.
 - Sound like a professional academic counselor.
-- Do not invent programs outside context.
 """
 
     return generate_response(system_prompt, message)
@@ -1429,6 +1723,14 @@ Instructions:
 
 
 def education_scholarship_strategy(agent, message, session):
+
+    if agent.company_name and agent.company_name.lower() not in message.lower():
+
+        if any(word in message.lower() for word in ["university","college","institute"]):
+            return (
+                f"I provide scholarship guidance only for {agent.company_name}. "
+                "If you have questions about its scholarship programs, I'd be happy to help."
+            )
 
     # 🔹 STEP 1 — AI Scope Classification
 
@@ -1527,7 +1829,13 @@ If not mentioned, return empty string.
     system_prompt = f"""
 {agent.resolved_prompt}
 
-User Message: {message}
+IMPORTANT RULE:
+- The university name is {agent.company_name}.
+- Never assume or adopt any other university name mentioned by the user.
+- If the user mentions another institution, politely clarify you only provide information for {agent.company_name}.
+
+User Message:
+{message}
 
 Relevant Scholarship Policy:
 {context}
@@ -3531,3 +3839,429 @@ Instructions:
         "risk levels, and investment strategies. You can also tell me how "
         "much you plan to invest."
     )
+
+
+
+
+
+def sales_strategy(agent, message, session):
+
+    context = retrieve_relevant_chunks(agent, message)
+
+    if not context:
+        context = ""
+
+    system_prompt = f"""
+{agent.resolved_prompt}
+
+Product Information:
+{context}
+
+Goal:
+Explain product value clearly and guide the user toward the next step.
+
+Rules:
+- 2–3 sentences
+- Simple language
+- Focus on benefits
+- End with a soft next step
+"""
+
+    return generate_response(system_prompt, message)
+
+def lead_qualification_strategy(agent, message, session):
+
+    state = session.state or {}
+    msg = message.lower()
+    stage = session.stage
+
+    affirm_words = [
+    "yes",
+    "yeah",
+    "yup",
+    "ok",
+    "okay",
+    "sure",
+    "sounds good",
+    "that works",
+    "lets do it",
+    "please do"
+]
+
+    connect_words = [
+    "connect",
+    "talk",
+    "meet",
+    "book",
+    "schedule",
+    "appointment",
+    "speak with",
+    "sales expert"
+    ]
+
+    # -------------------------------
+    # User agrees to meet specialist
+    # -------------------------------
+
+    if stage not in ["collect_name", "collect_phone"] and (
+        any(w in msg for w in affirm_words) or
+        any(w in msg for w in connect_words)
+    ):
+
+        session.stage = "collect_name"
+        session.save()
+
+        return "Great. May I have your name so I can arrange the meeting?"
+    
+
+    # -------------------------------
+    # Collect user name
+    # -------------------------------
+
+    if stage == "collect_name":
+
+        state["user_name"] = message.strip()
+        session.state = state
+
+        session.stage = "collect_phone"
+        session.save()
+
+        return f"Thanks {state['user_name']}. Could you also share your phone number?"
+
+
+    # -------------------------------
+    # Collect phone number
+    # -------------------------------
+
+    if stage == "collect_phone":
+
+        phone_match = re.search(r"\d{8,15}", message)
+
+        if phone_match:
+
+            state["phone"] = phone_match.group()
+            session.state = state
+
+            session.stage = "meeting_confirmed"
+            session.save()
+
+            return f"""
+    Perfect, {state['user_name']}.
+
+    Our specialist from {agent.company_name} will contact you shortly to schedule the meeting and discuss the best strategy for your business.
+    """
+
+        return "Could you please share a valid phone number?"
+
+    info_keywords = [
+        "information",
+        "what do you do",
+        "what services",
+        "services",
+        "solutions",
+        "about your company",
+        "tell me about",
+        "what can you help with"
+    ]
+
+    if any(k in msg for k in info_keywords):
+        return information_strategy(agent, message, session)
+
+    
+
+    # ------------------------------------------------
+    # STEP 1: Retrieve knowledge context dynamically
+    # ------------------------------------------------
+
+    context = retrieve_relevant_chunks(agent, message) or ""
+
+
+    # ------------------------------------------------
+    # STEP 2: Extract structured lead information
+    # ------------------------------------------------
+
+    extraction_prompt = f"""
+You are extracting lead qualification information.
+
+Return JSON only:
+
+{{
+"goal": "",
+"business_type": "",
+"industry": "",
+"budget": "",
+"timeline": ""
+}}
+
+User message:
+"{message}"
+
+Rules:
+- Extract information only if clearly mentioned.
+- Do not guess missing details.
+- Leave fields empty if not present.
+"""
+
+    raw = generate_response(extraction_prompt, message)
+
+    try:
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        extracted = json.loads(match.group())
+    except:
+        extracted = {}
+
+    for k,v in extracted.items():
+        if v:
+            state[k] = v
+
+    session.state = state
+    session.save()
+
+
+    # ------------------------------------------------
+    # STEP 3: Determine missing lead information
+    # ------------------------------------------------
+
+    missing = []
+
+    if not state.get("goal"):
+        missing.append("goal")
+
+    if not state.get("business_type"):
+        missing.append("business_type")
+
+    if not state.get("budget"):
+        missing.append("budget")
+
+
+    # ------------------------------------------------
+    # STEP 4: Ask intelligent follow-up question
+    # ------------------------------------------------
+
+    if missing:
+
+        question_prompt = f"""
+You are {agent.name}, a Lead Qualifier at {agent.company_name}.
+
+Company knowledge context:
+{context}
+
+Known lead information:
+{state}
+
+User message:
+{message}
+
+Missing information:
+{missing}
+
+Instructions:
+- Ask ONE intelligent follow-up question.
+- Use the available information to make the question relevant.
+- Do NOT ask about information already implied by the user.
+- Do NOT repeat questions already answered.
+- Keep response under 20 words.
+- Sound conversational and professional.
+"""
+
+        return generate_response(question_prompt, message)
+
+
+    # ------------------------------------------------
+    # STEP 5: Provide advisory insight + sales handoff
+    # ------------------------------------------------
+
+    advisory_prompt = f"""
+You are a business advisor at {agent.company_name}.
+
+Lead information:
+{state}
+
+Company knowledge:
+{context}
+
+Instructions:
+1. Provide a short advisory insight based on the user's business goal.
+2. Mention one realistic strategy the business could use.
+3. Ask if the user would like to speak with a company specialist.
+
+Rules:
+- Maximum 2 sentences
+- Sound like a real business advisor
+- No filler phrases like "it sounds like"
+"""
+
+    return generate_response(advisory_prompt, message)
+
+
+def product_demo_strategy(agent, message, session):
+
+
+    state = session.state or {}
+    msg = message.lower()
+    context = retrieve_relevant_chunks(agent, message) or ""
+    stage = session.stage
+
+
+
+    overview_keywords = [
+    "what information",
+    "what does this product do",
+    "what is the product",
+    "product name",
+    "tell me about the product",
+    "what platform is this"
+    ]
+
+    if any(k in msg for k in overview_keywords):
+
+        context = retrieve_relevant_chunks(agent, message) or ""
+
+        system_prompt = f"""
+    You are a Product Demo Specialist at {agent.company_name}.
+
+    Knowledge Context:
+    {context}
+
+    User Question:
+    {message}
+
+    Instructions:
+    - Identify the product or platform described in the context.
+    - Explain what the product does.
+    - Mention key capabilities or features.
+
+    Rules:
+    - Only use information from the context.
+    - Do NOT guess product names.
+    - If the name is unclear, say "the platform described".
+    - Maximum 3 sentences.
+    """
+
+        return generate_response(system_prompt, message)
+
+
+    general_questions = [
+    "what information",
+    "what do you do",
+    "what is this product",
+    "what features",
+    "what services"
+    ]
+
+    if any(q in msg for q in general_questions):
+
+        system_prompt = f"""
+    You are a Product Demo Specialist at {agent.company_name}.
+
+    Explain the product overview.
+
+    Knowledge:
+    {context}
+
+    Rules:
+    - Summarize the platform capabilities
+    - Mention key features
+    - Maximum 3 sentences
+    """
+
+        return generate_response(system_prompt, message)
+
+    # -------------------------------------
+    # 1️⃣ Demo booking confirmation
+    # -------------------------------------
+
+    affirm_words = [
+        "yes","yeah","yup","ok","okay",
+        "sure","sounds good","lets do it"
+    ]
+
+    demo_words = [
+        "demo","show me","walkthrough",
+        "see how","product demo"
+    ]
+
+
+    if stage not in ["collect_name","collect_phone"] and (
+        any(w in msg for w in affirm_words) or
+        any(w in msg for w in demo_words)
+    ):
+
+        session.stage = "collect_name"
+        session.save()
+
+        return "Great. May I have your name to arrange the product demo?"
+
+
+    # -------------------------------------
+    # 2️⃣ Collect name
+    # -------------------------------------
+
+    if stage == "collect_name":
+
+        state["name"] = message.strip()
+        session.state = state
+
+        session.stage = "collect_phone"
+        session.save()
+
+        return f"Thanks {state['name']}. Could you share your phone number so we can schedule the demo?"
+
+
+    # -------------------------------------
+    # 3️⃣ Collect phone
+    # -------------------------------------
+
+    if stage == "collect_phone":
+
+        phone = re.search(r"\d{8,15}", message)
+
+        if phone:
+
+            state["phone"] = phone.group()
+            session.state = state
+
+            session.stage = "demo_booked"
+            session.save()
+
+            return f"""
+Perfect {state['name']}.
+
+Our product specialist from {agent.company_name} will contact you shortly to schedule the demo.
+"""
+
+        return "Could you please provide a valid phone number?"
+
+
+    # -------------------------------------
+    # 4️⃣ Retrieve product knowledge
+    # -------------------------------------
+
+    
+
+
+    # -------------------------------------
+    # 5️⃣ Explain product feature
+    # -------------------------------------
+
+    system_prompt = f"""
+You are a Product Demo Specialist at {agent.company_name}.
+
+Knowledge Context:
+{context}
+
+User Question:
+{message}
+
+Goal:
+Explain the product feature or capability clearly and relate it to real business usage.
+
+Rules:
+- Use only the provided knowledge context
+- Do NOT invent product names or features
+- If information is missing, say you do not have that detail
+- Keep answers clear and conversational
+- Maximum 2–3 sentences
+"""
+
+    return generate_response(system_prompt, message)

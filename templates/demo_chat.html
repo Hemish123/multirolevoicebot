@@ -839,6 +839,7 @@ button:active {
       <option value="" disabled selected>Select Role</option>
     </select>
     <button onclick="startChat()">🚀 Start</button>
+    <button onclick="testWebSocket()">Test WebSocket</button>
   </div>
 
   <div class="card" id="chatCard" style="display:none;">
@@ -1335,6 +1336,39 @@ loadIndustries();
   obs.observe(rol, { childList: true });
 })();
 </script>
+
+
+<script>
+/* ===== WEBSOCKET TEST ===== */
+
+function testWebSocket(){
+
+    const socket = new WebSocket("ws://127.0.0.1:8000/ws/voice-bot/");
+
+    socket.onopen = function(){
+        console.log("✅ WebSocket Connected");
+
+        socket.send(JSON.stringify({
+            agent_id: 1,
+            message: "hello",
+            session_id: null
+        }));
+    };
+
+    socket.onmessage = function(event){
+        console.log("🤖 Server Response:", event.data);
+    };
+
+    socket.onerror = function(error){
+        console.log("❌ WebSocket Error:", error);
+    };
+
+    socket.onclose = function(){
+        console.log("🔌 Connection Closed");
+    };
+}
+</script>
+
 
 </body>
 </html>
