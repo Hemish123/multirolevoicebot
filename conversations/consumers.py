@@ -298,8 +298,6 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
             pcm_audio = pcm_audio[44:]
         print("PCM reply length:", len(pcm_audio))
 
-        pcm_audio = audioop.bias(pcm_audio, 2, 0)
-
         ulaw_audio = encode_g711(pcm_audio)
 
         # BEFORE loop
@@ -308,73 +306,15 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
         seq = 0
         timestamp = 0
 
-        # # start_time = time.time()
-        # packet_duration = 0.02
-        # next_send_time = time.time()
-
-        # for i in range(0, len(ulaw_audio), 160):
-        #     chunk = ulaw_audio[i:i+160]
-
-        #     if len(chunk) < 160:
-        #         chunk = chunk.ljust(160, b'\x00')
-
-        #     with open("debug_stream_ulaw.raw", "ab") as f:
-        #         f.write(chunk)
-
-        #     rtp_packet = create_rtp_packet(
-        #         chunk,
-        #         seq=seq,
-        #         ts=timestamp
-        #     )
-
-        #     try:
-        #         await self.send(bytes_data=rtp_packet)
-        #     except Exception as e:
-        #         print("Send failed:", e)
-        #         break
-
-        #     seq += 1
-        #     timestamp += 160
-
-        #     # # 🔥 CRITICAL FIX
-        #     # await asyncio.sleep(0)   # yield control to event loop
-
-        #     # # pacing (keep this)
-        #     # await asyncio.sleep(0.02)
-
-        #     # 🔥 precise timing
-        #     # expected_time = seq * 0.02
-        #     # actual_time = time.time() - start_time
-
-        #     # if expected_time > actual_time:
-        #     #     await asyncio.sleep(expected_time - actual_time)
-
-
-        #     # 🔥 NEW TIMING LOGIC (replace your old one)
-        #     next_send_time += packet_duration
-        #     sleep_time = next_send_time - time.time()
-
-        #     if sleep_time > 0:
-        #         await asyncio.sleep(sleep_time)
-        #     else:
-        #         # 🔥 resync if drift happens
-        #         next_send_time = time.time()
-
-
-        buffer = b""
-        FRAME_SIZE = 160
+        # start_time = time.time()
         packet_duration = 0.02
         next_send_time = time.time()
 
-        for i in range(0, len(ulaw_audio), FRAME_SIZE):
-            buffer += ulaw_audio[i:i+FRAME_SIZE]
+        for i in range(0, len(ulaw_audio), 160):
+            chunk = ulaw_audio[i:i+160]
 
-            # only send when exact frame size ready
-            if len(buffer) < FRAME_SIZE:
-                continue
-
-            chunk = buffer[:FRAME_SIZE]
-            buffer = buffer[FRAME_SIZE:]
+            if len(chunk) < 160:
+                chunk = chunk.ljust(160, b'\x00')
 
             with open("debug_stream_ulaw.raw", "ab") as f:
                 f.write(chunk)
@@ -394,26 +334,41 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
             seq += 1
             timestamp += 160
 
-            # 🔥 stable timing
+            # # 🔥 CRITICAL FIX
+            # await asyncio.sleep(0)   # yield control to event loop
+
+            # # pacing (keep this)
+            # await asyncio.sleep(0.02)
+
+            # 🔥 precise timing
+            # expected_time = seq * 0.02
+            # actual_time = time.time() - start_time
+
+            # if expected_time > actual_time:
+            #     await asyncio.sleep(expected_time - actual_time)
+
+
+            # 🔥 NEW TIMING LOGIC (replace your old one)
             next_send_time += packet_duration
             sleep_time = next_send_time - time.time()
 
             if sleep_time > 0:
                 await asyncio.sleep(sleep_time)
             else:
+                # 🔥 resync if drift happens
                 next_send_time = time.time()
-            
-            # ✅ PUT IT HERE (same level)
-            async def safe_tts_stream(self, text):
-                try:
-                    await self.send_tts(text)
-                except Exception as e:
-                    print("TTS stream error:", e)
-            
-            async def disconnect(self, close_code):
-                print("🔌 WebSocket disconnected")
+    
+    # ✅ PUT IT HERE (same level)
+    async def safe_tts_stream(self, text):
+        try:
+            await self.send_tts(text)
+        except Exception as e:
+            print("TTS stream error:", e)
+    
+    async def disconnect(self, close_code):
+        print("🔌 WebSocket disconnected")
 
-                if hasattr(self, "tts_task"):
-                    self.tts_task.cancel()
+        if hasattr(self, "tts_task"):
+            self.tts_task.cancel()
 
     
