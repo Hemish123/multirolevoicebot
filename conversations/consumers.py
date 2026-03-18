@@ -293,7 +293,9 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
         print("================================")
         # 🔥 DEBUG END
 
-        pcm_audio = pcm_audio[44:]
+        # pcm_audio = pcm_audio[44:]
+        if pcm_audio[:4] == b'RIFF':
+            pcm_audio = pcm_audio[44:]
         print("PCM reply length:", len(pcm_audio))
 
         ulaw_audio = encode_g711(pcm_audio)
@@ -331,11 +333,18 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
             seq += 1
             timestamp += 160
 
-            # 🔥 CRITICAL FIX
-            await asyncio.sleep(0)   # yield control to event loop
+            # # 🔥 CRITICAL FIX
+            # await asyncio.sleep(0)   # yield control to event loop
 
-            # pacing (keep this)
-            await asyncio.sleep(0.02)
+            # # pacing (keep this)
+            # await asyncio.sleep(0.02)
+
+            # 🔥 precise timing
+            expected_time = seq * 0.02
+            actual_time = time.time() - start_time
+
+            if expected_time > actual_time:
+                await asyncio.sleep(expected_time - actual_time)
     
     # ✅ PUT IT HERE (same level)
     async def safe_tts_stream(self, text):
