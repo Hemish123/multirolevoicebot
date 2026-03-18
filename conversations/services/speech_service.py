@@ -8,7 +8,7 @@ def create_speech_recognizer():
     )
 
     # OPTIONAL but safe
-    speech_config.speech_recognition_language = "en-US"
+    speech_config.speech_recognition_language = "en-IN"
 
     audio_stream = speechsdk.audio.PushAudioInputStream()
     audio_config = speechsdk.audio.AudioConfig(stream=audio_stream)

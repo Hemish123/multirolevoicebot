@@ -85,15 +85,40 @@ def get_agent_summary(agent_id):
 
 
 
+# def create_rtp_packet(payload, seq, ts, ssrc=12345):
+#     header = struct.pack(
+#         "!BBHII",
+#         0x80,   # Version
+#         0,      # Payload type (PCMU)
+#         seq,    # Sequence number
+#         ts,     # Timestamp
+#         ssrc    # Sync source
+#     )
+#     return header + payload
+
+
+
 def create_rtp_packet(payload, seq, ts, ssrc=12345):
+    version = 2
+    padding = 0
+    extension = 0
+    cc = 0
+
+    marker = 1 if seq == 0 else 0   # 🔥 first packet marker
+    payload_type = 0  # PCMU
+
+    first_byte = (version << 6) | (padding << 5) | (extension << 4) | cc
+    second_byte = (marker << 7) | payload_type
+
     header = struct.pack(
         "!BBHII",
-        0x80,   # Version
-        0,      # Payload type (PCMU)
-        seq,    # Sequence number
-        ts,     # Timestamp
-        ssrc    # Sync source
+        first_byte,
+        second_byte,
+        seq,
+        ts,
+        ssrc
     )
+
     return header + payload
 
 def fake_tts(text):
@@ -138,27 +163,36 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
             await self.close()
             return
 
-        open("debug_ulaw.raw", "wb").close()
+        open("debug_stream_ulaw.raw", "wb").close()
+        open("debug_full_ulaw.raw", "wb").close()
 
         # ✅ Create Azure STT
         self.recognizer, self.audio_stream = create_speech_recognizer()
         self.audio_buffer = b""
 
         # ✅ Handle speech result
+        # def handle_result(evt):
+        #     print("STT EVENT TRIGGERED")
+        #     if evt.result.text:
+        #         print("REAL STT:", evt.result.text)
+
+        #         # Call AI
+        #         reply, session_id = process_message(
+        #             self.agent_id,
+        #             evt.result.text,
+        #             None
+        #         )
+
+        #         # Send TTS async
+        #         asyncio.create_task(self.send_tts(reply))
+
         def handle_result(evt):
-            print("STT EVENT TRIGGERED")
             if evt.result.text:
-                print("REAL STT:", evt.result.text)
+                asyncio.create_task(self.handle_ai_reply(evt.result.text))
 
-                # Call AI
-                reply, session_id = process_message(
-                    self.agent_id,
-                    evt.result.text,
-                    None
-                )
 
-                # Send TTS async
-                asyncio.create_task(self.send_tts(reply))
+        
+                
 
         # Attach event
         self.recognizer.recognized.connect(handle_result)
@@ -175,8 +209,8 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
         # small delay for socket readiness
         await asyncio.sleep(0.2)
 
-        asyncio.create_task(self.send_tts(summary_text))
-
+        # asyncio.create_task(self.send_tts(summary_text))
+        asyncio.create_task(self.safe_tts_stream(summary_text))
         # optional debug message
         await self.send(text_data=json.dumps({
             "message": f"Connected to agent {self.agent_id}"
@@ -223,7 +257,14 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
                 print("❌ Error in receive:", e)
 
 
+    async def handle_ai_reply(self, text):
+            reply, session_id = process_message(
+                self.agent_id,
+                text,
+                None
+            )
 
+            await self.send_tts(reply)
 
     async def send_tts(self, text):
         speech_config = speechsdk.SpeechConfig(
@@ -257,57 +298,14 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
 
         ulaw_audio = encode_g711(pcm_audio)
 
-        # 🎧 STREAM RTP (real-time)
-        # 🎧 SEND ONLY INITIAL GREETING PACKETS (IMPORTANT FOR TELECOM)
-
-        # seq = 0
-        # timestamp = 0
-
-        # max_packets = 80   # ~200ms trigger
-        # sent = 0
-
-        # for i in range(0, len(ulaw_audio), 160):
-        #     chunk = ulaw_audio[i:i+160]
-
-        #     if len(chunk) < 160:
-        #         chunk = chunk.ljust(160, b'\x00') 
-
-        #     print(f"SEQ: {seq}, TS: {timestamp}, SIZE: {len(chunk)}")
-
-
-        #     # ✅ SAVE AUDIO (THIS IS TEST LINE)
-        #     with open("debug_ulaw.raw", "ab") as f:
-        #         f.write(chunk)
-
-        #     rtp_packet = create_rtp_packet(
-        #         chunk,
-        #         seq=seq,
-        #         ts=timestamp
-        #     )
-
-        #     try:
-        #         await self.send(bytes_data=rtp_packet)
-        #     except Exception as e:
-        #         print("⚠️ Send failed:", e)
-        #         break
-
-        #     seq += 1
-        #     timestamp += 160
-
-        #     sent += 1
-
-        #     if sent >= max_packets:
-        #         print("✅ Sent initial greeting packets only")
-        #         break
-
-        #     await asyncio.sleep(0.02)
-
+        # BEFORE loop
+        with open("debug_full_ulaw.raw", "wb") as f:
+            f.write(ulaw_audio)
         seq = 0
         timestamp = 0
 
-        # ✅ SAVE FULL AUDIO
-        with open("debug_ulaw.raw", "wb") as f:
-            f.write(ulaw_audio)
+
+        start_time = time.time()
 
         for i in range(0, len(ulaw_audio), 160):
             chunk = ulaw_audio[i:i+160]
@@ -315,7 +313,8 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
             if len(chunk) < 160:
                 chunk = chunk.ljust(160, b'\x00')
 
-            print(f"SEQ: {seq}, TS: {timestamp}, SIZE: {len(chunk)}")
+            with open("debug_stream_ulaw.raw", "ab") as f:
+                f.write(chunk)
 
             rtp_packet = create_rtp_packet(
                 chunk,
@@ -323,10 +322,32 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
                 ts=timestamp
             )
 
-            await self.send(bytes_data=rtp_packet)
+            try:
+                await self.send(bytes_data=rtp_packet)
+            except Exception as e:
+                print("Send failed:", e)
+                break
 
             seq += 1
             timestamp += 160
 
-            # optional (keep or remove for testing)
-            # await asyncio.sleep(0.02)
+            # 🔥 CRITICAL FIX
+            await asyncio.sleep(0)   # yield control to event loop
+
+            # pacing (keep this)
+            await asyncio.sleep(0.02)
+    
+    # ✅ PUT IT HERE (same level)
+    async def safe_tts_stream(self, text):
+        try:
+            await self.send_tts(text)
+        except Exception as e:
+            print("TTS stream error:", e)
+    
+    async def disconnect(self, close_code):
+        print("🔌 WebSocket disconnected")
+
+        if hasattr(self, "tts_task"):
+            self.tts_task.cancel()
+
+    
