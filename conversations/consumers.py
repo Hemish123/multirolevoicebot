@@ -307,7 +307,9 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
         timestamp = 0
 
 
-        start_time = time.time()
+        # start_time = time.time()
+        packet_duration = 0.02
+        next_send_time = time.time()
 
         for i in range(0, len(ulaw_audio), 160):
             chunk = ulaw_audio[i:i+160]
@@ -340,11 +342,22 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
             # await asyncio.sleep(0.02)
 
             # 🔥 precise timing
-            expected_time = seq * 0.02
-            actual_time = time.time() - start_time
+            # expected_time = seq * 0.02
+            # actual_time = time.time() - start_time
 
-            if expected_time > actual_time:
-                await asyncio.sleep(expected_time - actual_time)
+            # if expected_time > actual_time:
+            #     await asyncio.sleep(expected_time - actual_time)
+
+
+            # 🔥 NEW TIMING LOGIC (replace your old one)
+            next_send_time += packet_duration
+            sleep_time = next_send_time - time.time()
+
+            if sleep_time > 0:
+                await asyncio.sleep(sleep_time)
+            else:
+                # 🔥 resync if drift happens
+                next_send_time = time.time()
     
     # ✅ PUT IT HERE (same level)
     async def safe_tts_stream(self, text):
