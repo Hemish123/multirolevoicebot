@@ -42,7 +42,7 @@ import asyncio
 import os
 import azure.cognitiveservices.speech as speechsdk
 import time
-
+import base64
 
 # 🔥 ADD THIS IMPORT
 from agents.models import VoiceAgent
@@ -85,8 +85,9 @@ def get_agent_summary(agent_id):
 
 
 
-def create_rtp_packet(payload, seq=1, ts=1, ssrc=1):
-    header = struct.pack("!BBHII",
+def create_rtp_packet(payload, seq, ts, ssrc=12345):
+    header = struct.pack(
+        "!BBHII",
         0x80,   # Version
         0,      # Payload type (PCMU)
         seq,    # Sequence number
@@ -137,6 +138,7 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
             await self.close()
             return
 
+        open("debug_ulaw.raw", "wb").close()
 
         # ✅ Create Azure STT
         self.recognizer, self.audio_stream = create_speech_recognizer()
@@ -196,7 +198,8 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
                 print("Audio payload length:", len(audio_payload))
 
                 # Assign PCM
-                pcm_audio = audio_payload
+                # pcm_audio = audio_payload
+                pcm_audio = decode_g711(audio_payload)
 
                 # Normalize (safe)
                 if len(pcm_audio) % 2 != 0:
@@ -242,6 +245,14 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
         result = synthesizer.speak_text_async(text).get()
         pcm_audio = result.audio_data
 
+        # 🔥 DEBUG START (ADD HERE)
+        print("========== TTS DEBUG ==========")
+        print("TTS TEXT:", text)
+        print("PCM LENGTH:", len(pcm_audio))
+        print("================================")
+        # 🔥 DEBUG END
+
+        pcm_audio = pcm_audio[44:]
         print("PCM reply length:", len(pcm_audio))
 
         ulaw_audio = encode_g711(pcm_audio)
@@ -249,27 +260,73 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
         # 🎧 STREAM RTP (real-time)
         # 🎧 SEND ONLY INITIAL GREETING PACKETS (IMPORTANT FOR TELECOM)
 
-        max_packets = 10   # ~200ms audio (trigger)
-        sent = 0
+        # seq = 0
+        # timestamp = 0
+
+        # max_packets = 80   # ~200ms trigger
+        # sent = 0
+
+        # for i in range(0, len(ulaw_audio), 160):
+        #     chunk = ulaw_audio[i:i+160]
+
+        #     if len(chunk) < 160:
+        #         chunk = chunk.ljust(160, b'\x00') 
+
+        #     print(f"SEQ: {seq}, TS: {timestamp}, SIZE: {len(chunk)}")
+
+
+        #     # ✅ SAVE AUDIO (THIS IS TEST LINE)
+        #     with open("debug_ulaw.raw", "ab") as f:
+        #         f.write(chunk)
+
+        #     rtp_packet = create_rtp_packet(
+        #         chunk,
+        #         seq=seq,
+        #         ts=timestamp
+        #     )
+
+        #     try:
+        #         await self.send(bytes_data=rtp_packet)
+        #     except Exception as e:
+        #         print("⚠️ Send failed:", e)
+        #         break
+
+        #     seq += 1
+        #     timestamp += 160
+
+        #     sent += 1
+
+        #     if sent >= max_packets:
+        #         print("✅ Sent initial greeting packets only")
+        #         break
+
+        #     await asyncio.sleep(0.02)
+
+        seq = 0
+        timestamp = 0
+
+        # ✅ SAVE FULL AUDIO
+        with open("debug_ulaw.raw", "wb") as f:
+            f.write(ulaw_audio)
 
         for i in range(0, len(ulaw_audio), 160):
             chunk = ulaw_audio[i:i+160]
 
             if len(chunk) < 160:
-                break
+                chunk = chunk.ljust(160, b'\x00')
 
-            rtp_packet = create_rtp_packet(chunk)
+            print(f"SEQ: {seq}, TS: {timestamp}, SIZE: {len(chunk)}")
 
-            try:
-                await self.send(bytes_data=rtp_packet)
-            except Exception as e:
-                print("⚠️ Send failed:", e)
-                break
+            rtp_packet = create_rtp_packet(
+                chunk,
+                seq=seq,
+                ts=timestamp
+            )
 
-            sent += 1
+            await self.send(bytes_data=rtp_packet)
 
-            if sent >= max_packets:
-                print("✅ Sent initial greeting packets only")
-                break
+            seq += 1
+            timestamp += 160
 
-            await asyncio.sleep(0.02)
+            # optional (keep or remove for testing)
+            # await asyncio.sleep(0.02)
