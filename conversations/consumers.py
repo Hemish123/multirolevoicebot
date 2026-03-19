@@ -217,9 +217,11 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
         # small delay for socket readiness
         await asyncio.sleep(0.2)
 
-        # asyncio.create_task(self.send_tts(summary_text))
+        asyncio.create_task(self.send_tts(summary_text))
         # asyncio.create_task(self.safe_tts_stream(summary_text))
-        await self.send_tts(summary_text)
+        # await asyncio.sleep(0.1)
+        # await self.send_tts(summary_text)
+        await asyncio.sleep(2)
         # optional debug message
         await self.send(text_data=json.dumps({
             "message": f"Connected to agent {self.agent_id}"
@@ -323,28 +325,31 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
             if len(frame) < FRAME_PCM:
                 frame = frame.ljust(FRAME_PCM, b'\x00')
 
-            if is_silence(frame):
-                # 🔥 replace with pure silence
-                # frame = b'\x00' * FRAME_PCM
-                # μ-law silence = 0xFF
-                silence_ulaw = b'\xFF' * 160
-                processed_pcm += audioop.ulaw2lin(silence_ulaw, 2)
-                continue
+            # if is_silence(frame):
+            #     # 🔥 replace with pure silence
+            #     # frame = b'\x00' * FRAME_PCM
+            #     # μ-law silence = 0xFF
+            #     silence_ulaw = b'\xFF' * 160
+            #     processed_pcm += audioop.ulaw2lin(silence_ulaw, 2)
+            #     continue
 
             processed_pcm += frame
         # processed_pcm = audioop.mul(processed_pcm, 2, 0.95)
 
         ulaw_audio = encode_g711(processed_pcm)
 
+        print("TOTAL ULaw SIZE:", len(ulaw_audio))
+        print("EXPECTED CHUNKS:", len(ulaw_audio) // 160)
+
         # BEFORE loop
         with open("debug_full_ulaw.raw", "wb") as f:
             f.write(ulaw_audio)
-        seq = 0
-        timestamp = 0
+        # seq = 0
+        # timestamp = 0
 
         # start_time = time.time()
-        packet_duration = 0.02
-        next_send_time = time.time()
+        # packet_duration = 0.02
+        # next_send_time = time.time()
 
         for i in range(0, len(ulaw_audio), 160):
             chunk = ulaw_audio[i:i+160]
@@ -352,26 +357,84 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
             if len(chunk) < 160:
                 chunk = chunk.ljust(160, b'\x00')
 
-            with open("debug_stream_ulaw.raw", "ab") as f:
+            # with open("debug_stream_ulaw.raw", "ab") as f:
+                # f.write(chunk)
+
+            payload = base64.b64encode(chunk).decode()
+
+            with open("debug_sent_ulaw.raw", "ab") as f:
                 f.write(chunk)
 
-            rtp_packet = create_rtp_packet(
-                chunk,
-                seq=seq,
-                ts=timestamp
-            )
+            print("Sending chunk:", i)
+
+            payload = base64.b64encode(chunk).decode()
+
+            message = {
+                "event": "media",
+                "media": {
+                    "payload": payload
+                }
+            }
+
+            # await self.send(text_data=json.dumps(message))
 
             try:
-                await self.send(bytes_data=rtp_packet)
+                await self.send(text_data=json.dumps(message))
             except Exception as e:
                 print("Send failed:", e)
                 break
+            
+            # 🔥 ADD THIS (KEEP CONNECTION ALIVE)
+            if i % 8000 == 0:   # every ~1 sec (160 * 50 = 8000)
+                await self.send(text_data=json.dumps({
+                    "event": "ping"
+                }))
 
-            seq += 1
-            timestamp += 160
+
+            await asyncio.sleep(0.02)
+        
+        # # ✅ PUT MARK EVENT HERE (AFTER LOOP)
+        # await self.send(text_data=json.dumps({
+        #     "event": "mark",
+        #     "name": "end_of_audio"
+        # }))
+
+            # rtp_packet = create_rtp_packet(
+            #     chunk,
+            #     seq=seq,
+            #     ts=timestamp
+            # )
+
+            # try:
+            #     # await self.send(bytes_data=rtp_packet)
+
+            #     for i in range(0, len(ulaw_audio), 160):
+            #         chunk = ulaw_audio[i:i+160]
+
+            #         if len(chunk) < 160:
+            #             chunk = chunk.ljust(160, b'\x00')
+
+            #         payload = base64.b64encode(chunk).decode()
+
+            #         message = {
+            #             "event": "media",
+            #             "media": {
+            #                 "payload": payload
+            #             }
+            #         }
+
+            #         await self.send(text_data=json.dumps(message))
+
+            #         await asyncio.sleep(0.02)
+            # except Exception as e:
+            #     print("Send failed:", e)
+            #     break
+
+            # seq += 1
+            # timestamp += 160
 
             # # 🔥 CRITICAL FIX
-            await asyncio.sleep(0)   # yield control to event loop
+            # await asyncio.sleep(0)   # yield control to event loop
 
             # # pacing (keep this)
             # await asyncio.sleep(0.02)
@@ -385,14 +448,14 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
 
 
             # 🔥 NEW TIMING LOGIC (replace your old one)
-            next_send_time += packet_duration
-            sleep_time = next_send_time - time.time()
+            # next_send_time += packet_duration
+            # sleep_time = next_send_time - time.time()
 
-            if sleep_time > 0:
-                await asyncio.sleep(sleep_time)
-            else:
-                # 🔥 resync if drift happens
-                next_send_time = time.time()
+            # if sleep_time > 0:
+            #     await asyncio.sleep(sleep_time)
+            # else:
+            #     # 🔥 resync if drift happens
+            #     next_send_time = time.time()
     
     # ✅ PUT IT HERE (same level)
     async def safe_tts_stream(self, text):
