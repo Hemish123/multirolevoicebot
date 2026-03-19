@@ -104,7 +104,8 @@ def create_rtp_packet(payload, seq, ts, ssrc=12345):
     extension = 0
     cc = 0
 
-    marker = 1 if seq == 0 else 0   # 🔥 first packet marker
+    # marker = 1 if seq == 0 else 0   # 🔥 first packet marker
+    marker = 1
     payload_type = 0  # PCMU
 
     first_byte = (version << 6) | (padding << 5) | (extension << 4) | cc
@@ -120,6 +121,15 @@ def create_rtp_packet(payload, seq, ts, ssrc=12345):
     )
 
     return header + payload
+
+
+
+def is_silence(chunk, threshold=150):
+    import audioop
+    rms = audioop.rms(chunk, 2)  # PCM energy
+    return rms < threshold
+
+
 
 def fake_tts(text):
     print("Converting text to audio...")
@@ -191,8 +201,6 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
                 asyncio.create_task(self.handle_ai_reply(evt.result.text))
 
 
-        
-                
 
         # Attach event
         self.recognizer.recognized.connect(handle_result)
@@ -210,7 +218,8 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
         await asyncio.sleep(0.2)
 
         # asyncio.create_task(self.send_tts(summary_text))
-        asyncio.create_task(self.safe_tts_stream(summary_text))
+        # asyncio.create_task(self.safe_tts_stream(summary_text))
+        await self.send_tts(summary_text)
         # optional debug message
         await self.send(text_data=json.dumps({
             "message": f"Connected to agent {self.agent_id}"
@@ -298,7 +307,34 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
             pcm_audio = pcm_audio[44:]
         print("PCM reply length:", len(pcm_audio))
 
-        ulaw_audio = encode_g711(pcm_audio)
+        # 🔥 ADD THIS HERE
+        if len(pcm_audio) % 2 != 0:
+            pcm_audio = pcm_audio[:-1]
+
+        # ulaw_audio = encode_g711(pcm_audio)
+
+        FRAME_PCM = 320  # 20ms PCM (160 samples * 2 bytes)
+
+        processed_pcm = b""
+
+        for i in range(0, len(pcm_audio), FRAME_PCM):
+            frame = pcm_audio[i:i+FRAME_PCM]
+
+            if len(frame) < FRAME_PCM:
+                frame = frame.ljust(FRAME_PCM, b'\x00')
+
+            if is_silence(frame):
+                # 🔥 replace with pure silence
+                # frame = b'\x00' * FRAME_PCM
+                # μ-law silence = 0xFF
+                silence_ulaw = b'\xFF' * 160
+                processed_pcm += audioop.ulaw2lin(silence_ulaw, 2)
+                continue
+
+            processed_pcm += frame
+        # processed_pcm = audioop.mul(processed_pcm, 2, 0.95)
+
+        ulaw_audio = encode_g711(processed_pcm)
 
         # BEFORE loop
         with open("debug_full_ulaw.raw", "wb") as f:
@@ -335,7 +371,7 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
             timestamp += 160
 
             # # 🔥 CRITICAL FIX
-            # await asyncio.sleep(0)   # yield control to event loop
+            await asyncio.sleep(0)   # yield control to event loop
 
             # # pacing (keep this)
             # await asyncio.sleep(0.02)
