@@ -123,6 +123,10 @@ def is_numeric_query(query: str) -> bool:
 # -------------------------
 
 def retrieve_relevant_chunks(agent, query, limit=5):
+
+    import time  # ✅ added
+    rag_start = time.time()  # ✅ start timer
+
     """
     Returns concatenated relevant document chunks.
     If nothing relevant is found, returns empty string.
@@ -133,6 +137,7 @@ def retrieve_relevant_chunks(agent, query, limit=5):
     )
 
     if not chunks.exists():
+        print("⏱ RAG Time:", time.time() - rag_start)
         return ""
 
     keywords = extract_keywords(query)
@@ -170,6 +175,7 @@ def retrieve_relevant_chunks(agent, query, limit=5):
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
 
     if scored_chunks:
+        print("⏱ RAG Time:", time.time() - rag_start)
         return "\n\n".join(
             [c for _, c in scored_chunks[:limit]]
         )
@@ -225,4 +231,5 @@ Document Chunks:
     ]
 
     if not selected_chunks:
+        print("⏱ RAG Time:", time.time() - rag_start)
         return ""

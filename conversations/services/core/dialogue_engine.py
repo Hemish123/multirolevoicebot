@@ -302,6 +302,8 @@
 
 
 
+import re
+
 from knowledge.services.retriever import retrieve_relevant_chunks
 from conversations.services.azure_openai_service import generate_response
 from conversations.services.core.intent_classifier import classify_intent
@@ -310,6 +312,7 @@ import uuid
 from conversations.services.core.behavior_router import get_role_strategy
 from conversations.services.core.strategies import (
     education_qualification_strategy,
+    identity_guard,
     information_strategy,
     transaction_strategy,
     qualification_strategy,
@@ -318,44 +321,205 @@ from conversations.services.core.strategies import (
     loan_financial_strategy,
     education_scholarship_strategy,
     education_support_strategy,
+    insurance_transaction_strategy,
+    mutual_fund_advisor_strategy,
+    investment_advisor_strategy
 )
+
  
+# def process_message(agent, message, session_id=None):
+
+#     import time  # ✅ added
+#     start_time = time.time()  # ✅ total timer start
  
+#     # 1️⃣ Create or Load Session
+#     if not session_id:
+#         session_id = str(uuid.uuid4())
+ 
+#     session, _ = ConversationSession.objects.get_or_create(
+#         agent=agent,
+#         session_id=session_id
+#     )
+ 
+#     # 2️⃣ Detect Intent (AI-based)
+#     intent_data = classify_intent(message)
+#     intent = intent_data.get("intent", "unknown")
+#     print("---- DEBUG START ----")
+#     print("MESSAGE:", message)
+#     print("INTENT:", intent)
+#     print("STAGE BEFORE:", session.stage)
+#     print("STATE BEFORE:", session.state)
+#     print("----------------------")
+
+#     intent_start = time.time()  # ✅ intent timer
+#     intent_data = classify_intent(message)
+#     print("⏱ Intent Time:", time.time() - intent_start)  # ✅ log
+
+#     intent = intent_data.get("intent", "unknown")
+
+#     session.current_intent = intent
+ 
+#     # 3️⃣ GLOBAL ROUTER (Intent-Level)
+
+#     identity_reply = identity_guard(agent, message)
+#     if identity_reply:
+#         return identity_reply, session_id
+ 
+#     if intent == "greeting" and not session.stage and not session.state:
+#         reply = f"Hello! Welcome to {agent.company_name or agent.name}. How can I assist you today?"
+#         return reply, session_id
+ 
+#     if intent == "complaint":
+#         reply = "I'm sorry to hear that. Could you please provide more details so I can assist you better?"
+#         session.stage = "handling_complaint"
+#         session.save()
+#         return reply, session_id
+ 
+
+
+#     role_name = agent.role_template.role_name
+#     strategy_type = get_role_strategy(role_name)
+
+
 def process_message(agent, message, session_id=None):
- 
+
+    import time
+    import re
+
+    start_time = time.time()
+
     # 1️⃣ Create or Load Session
     if not session_id:
         session_id = str(uuid.uuid4())
- 
+
     session, _ = ConversationSession.objects.get_or_create(
         agent=agent,
         session_id=session_id
     )
- 
-    # 2️⃣ Detect Intent (AI-based)
-    intent_data = classify_intent(message)
-    intent = intent_data.get("intent", "unknown")
+
+    # 2️⃣ Improved Rule-Based Intent Detection (FAST but smarter)
+
+    msg_lower = message.lower().strip()
+
+    # ////////////////////////////////////////////////////////////////////////////////////////////////
+    # Global BYE/EXIT
+    # ////////////////////////////////////////////////////////////////////////////////////////////////
+
+    msg_clean = re.sub(r"[^\w\s]", "", msg_lower)
+
+    exit_phrases = [
+        "bye", "goodbye", "ok bye", "okay bye", "bye bye",
+        "thanks", "thank you", "thank you so much",
+        "thanks a lot", "thanks for helping",
+        "thank you for helping",
+        "appreciate it",
+        "that is all", "thats all", "that's all",
+        "no thanks", "no thank you",
+        "done", "im done", "i am done",
+        "nothing else", "thats it", "that's it",
+        "all set", "perfect thanks",
+        "great thanks", "ok thanks", "okay thanks"
+    ]
+
+    if any(word in msg_lower for word in exit_phrases):
+
+        session.stage = None
+        session.state = {}
+        session.current_intent = "conversation_end"
+        session.save()
+
+        reply = (
+            f"You're welcome!\n\n"
+            f"Thank you to connect with {agent.company_name or agent.name}. "
+            # f"If you need assistance again, feel free to start a new conversation."
+        )
+
+        print("⏱ Total Message Time:", time.time() - start_time)
+        return reply, session_id
+    
+    words = re.findall(r"\b\w+\b", msg_lower)
+
+    
+    # 🔹 Bot wellbeing detection (NEW)
+    if any(phrase in msg_lower for phrase in [
+        "how are you",
+        "how are you doing",
+        "how are you today",
+        "how's it going",
+        "how are things"
+    ]):
+        intent = "bot_wellbeing"
+
+    elif any(greet in words for greet in ["hi", "hello", "hey", "start"]):
+        intent = "greeting"
+    elif any(word in msg_lower for word in ["complaint", "not happy", "bad service", "issue"]):
+        intent = "complaint"
+
+    elif any(word in msg_lower for word in ["book", "appointment", "schedule"]):
+        intent = "appointment_request"
+
+    # 🔹 Scholarship-related detection
+    elif any(word in msg_lower for word in [
+        "scholarship", "percentage", "marks", "financial aid",
+        "fee waiver", "eligible", "%"
+    ]):
+        intent = "scholarship_query"
+
+    # 🔹 Education career detection
+    elif any(word in msg_lower for word in [
+        "career", "course", "management", "engineering",
+        "interested", "study", "admission"
+    ]):
+        intent = "education_query"
+
+
+    # 🔹 General information detection
+    elif any(word in msg_lower for word in [
+        "what", "which", "tell", "information", "service", "timing"
+    ]):
+        intent = "information_request"
+
+    else:
+        intent = "general_query"
+
     print("---- DEBUG START ----")
     print("MESSAGE:", message)
     print("INTENT:", intent)
     print("STAGE BEFORE:", session.stage)
     print("STATE BEFORE:", session.state)
     print("----------------------")
+    print("⏱ Intent Time: 0 (rule-based)")
+
     session.current_intent = intent
- 
+
     # 3️⃣ GLOBAL ROUTER (Intent-Level)
- 
+
+    identity_reply = identity_guard(agent, message)
+    if identity_reply:
+        print("⏱ Total Message Time:", time.time() - start_time)
+        return identity_reply, session_id
+
     if intent == "greeting" and not session.stage and not session.state:
         reply = f"Hello! Welcome to {agent.company_name or agent.name}. How can I assist you today?"
+        print("⏱ Total Message Time:", time.time() - start_time)
         return reply, session_id
- 
+    
+    if intent == "bot_wellbeing":
+        reply = (
+            f"I'm doing well, thank you for asking! 😊\n\n"
+            f"I'm here to help you with {agent.company_name or agent.name} services. "
+            f"How can I assist you today?"
+        )
+        
+        print("⏱ Total Message Time:", time.time() - start_time)
+        return reply, session_id
+
     if intent == "complaint":
         reply = "I'm sorry to hear that. Could you please provide more details so I can assist you better?"
         session.stage = "handling_complaint"
         session.save()
+        print("⏱ Total Message Time:", time.time() - start_time)
         return reply, session_id
- 
-
 
     role_name = agent.role_template.role_name
     strategy_type = get_role_strategy(role_name)
@@ -413,6 +577,16 @@ def process_message(agent, message, session_id=None):
         # 3️⃣ Otherwise → treat as knowledge question
         else:
             reply = information_strategy(agent, message, session)
+
+    # 🛡️ Insurance Advisor Dedicated Flow
+    elif strategy_type == "insurance_transaction":
+        reply = insurance_transaction_strategy(agent, message, session)
+
+    elif strategy_type == "mutual_fund_advisor":
+        reply = mutual_fund_advisor_strategy(agent, message, session)
+
+    elif strategy_type == "investment_advisor":
+        reply = investment_advisor_strategy(agent, message, session)
  
     elif strategy_type == "support":
  
@@ -475,7 +649,9 @@ def process_message(agent, message, session_id=None):
         # 🔹 Everything else → normal info
         else:
             reply = information_strategy(agent, message, session)
+            
  
     
 
+    print("⏱ Total Message Time:", time.time() - start_time)  # ✅ total log
     return reply, session_id

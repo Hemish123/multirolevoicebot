@@ -1,6 +1,7 @@
 # conversations/services/core/behavior_router.py
  
 ROLE_STRATEGY_MAP = {
+    
     # 🔵 Healthcare Support Roles
     "Patient Support Agent": "support",
     # Transaction Roles
@@ -20,12 +21,17 @@ ROLE_STRATEGY_MAP = {
     "Scholarship Advisor": "education_scholarship",
     "Student Help Desk": "education_support",
 
-    # Qualification Roles
-    "Sales Executive": "qualification",
-    "Lead Qualifier": "qualification",
-    "Product Demo Agent": "qualification",
-   
+    # Sales & Marketing
+    "Sales Executive": "information",
+    "Lead Qualifier": "information",
+    "Product Demo Agent": "information",
+
     "HR Recruiter": "qualification",
+
+    # BFSI
+    "Insurance Advisor": "insurance_transaction",
+    "Mutual Funds Advisor": "mutual_fund_advisor",
+    "Investment Advisor": "investment_advisor",
  
     # Default → Information
 }

@@ -396,6 +396,42 @@
 from knowledge.services.retriever import retrieve_relevant_chunks
 from conversations.services.azure_openai_service import generate_response
  
+
+
+
+def identity_guard(agent, message):
+    """
+    Intercepts identity-related questions BEFORE any strategy logic.
+    Returns a response string if handled, otherwise None.
+    """
+
+    msg = message.lower().strip()
+
+    identity_phrases = [
+        "who are you",
+        "what is your name",
+        "introduce yourself",
+        "tell me about you",
+        "what do you do"
+    ]
+
+    if any(p in msg for p in identity_phrases):
+        system_prompt = f"""
+{agent.resolved_prompt}
+
+User is asking about your identity.
+
+Instructions:
+- Introduce yourself clearly.
+- Mention your role and company.
+- Do NOT start any sales, qualification, or booking flow.
+- Keep response to 2–3 sentences.
+- Sound human and professional.
+"""
+        return f"I am {agent.name}, your {agent.role_template.role_name} at {agent.company_name}."
+
+    return None
+
  
 def information_strategy(agent, message, session):
     context = retrieve_relevant_chunks(agent, message)
@@ -444,16 +480,14 @@ Knowledge Context:
 {context}
 
 Respond conversationally.
+Keep response strictly 2–3 sentences.
+Use simple, clear language.
 Do not use brochure formatting.
-Keep response 3–5 sentences.
 Do not hallucinate.
 """
 
     return generate_response(system_prompt, message)
  
- 
-
-
 
 
 def transaction_strategy(agent, message, session):
@@ -799,78 +833,48 @@ def site_visit_transaction_strategy(agent, message, session):
 
 def loan_financial_strategy(agent, message, session):
 
+    import re
+
     msg = message.lower()
 
-    # 🔹 Step 1 — Extract structured data safely
-    extraction_prompt = f"""
-Extract financial details from this message.
+    # 🔹 Lightweight numeric extraction (NO LLM)
+    numbers = re.findall(r"\d+\.?\d*", msg)
+    numbers = [float(n) for n in numbers]
 
-Return JSON only:
-{{
-  "monthly_income": number or null,
-  "existing_emi": number or null,
-  "loan_amount_requested": number or null,
-  "tenure_years": number or null,
-  "interest_rate": number or null
-}}
+    income = numbers[0] if len(numbers) > 0 else 0
+    loan_amount = numbers[1] if len(numbers) > 1 else 0
 
-Message: "{message}"
-"""
+    tenure_years = 20
+    interest_rate = 8.5
 
-    raw = generate_response(extraction_prompt, message)
+    # 🔹 Eligibility Mode
+    if income > 0 and "income" in msg:
 
-    import json
-    try:
-        data = json.loads(raw)
-    except:
-        data = {}
-
-    if not isinstance(data, dict):
-        data = {}
-
-    # 🔹 Safe numeric initialization
-    income = float(data.get("monthly_income") or 0)
-    existing_emi = float(data.get("existing_emi") or 0)
-    loan_amount = float(data.get("loan_amount_requested") or 0)
-    tenure_years = float(data.get("tenure_years") or 20)
-    interest_rate = float(data.get("interest_rate") or 8.5)
-
-    # 🔹 2️⃣ Eligibility Estimation Mode
-    if income > 0:
-
-        eligible_emi = (income * 0.5) - existing_emi
-
+        eligible_emi = income * 0.5
         monthly_rate = (interest_rate / 100) / 12
         tenure_months = tenure_years * 12
 
-        if monthly_rate > 0:
-            estimated_loan = (
-                eligible_emi *
-                ((1 + monthly_rate) ** tenure_months - 1) /
-                (monthly_rate * (1 + monthly_rate) ** tenure_months)
-            )
-        else:
-            estimated_loan = eligible_emi * tenure_months
+        estimated_loan = (
+            eligible_emi *
+            ((1 + monthly_rate) ** tenure_months - 1) /
+            (monthly_rate * (1 + monthly_rate) ** tenure_months)
+        )
 
         estimated_loan_lakh = round(estimated_loan / 100000, 1)
 
-        explanation_prompt = f"""
+        system_prompt = f"""
 You are a professional home loan advisor.
 
-Monthly Income: ₹{income}
-Existing EMI: ₹{existing_emi}
-Estimated Loan Eligibility: ₹{estimated_loan_lakh} lakh
+Estimated Loan Eligibility: {estimated_loan_lakh} lakh
 
-Rules:
-- Keep answer under 4 sentences.
-- No bullet points.
-- Professional and human tone.
-- Mention final approval depends on bank evaluation.
+Keep answer under 4 sentences.
+Professional tone.
+Mention final approval depends on bank evaluation.
 """
 
-        return generate_response(explanation_prompt, message)
+        return generate_response(system_prompt, message)
 
-    # 🔹 3️⃣ EMI Calculation Mode
+    # 🔹 EMI Mode
     if loan_amount > 0:
 
         monthly_rate = (interest_rate / 100) / 12
@@ -884,22 +888,16 @@ Rules:
 
         emi_value = round(emi)
 
-        explanation_prompt = f"""
+        system_prompt = f"""
 You are a professional home loan advisor.
 
-Loan Amount: ₹{loan_amount}
-Interest Rate: {interest_rate}%
-Tenure: {tenure_years} years
-Calculated EMI: ₹{emi_value}
+Calculated EMI: {emi_value}
 
-Rules:
-- Keep response short (max 4 sentences).
-- Explain clearly and professionally.
+Keep response short and professional.
 """
 
-        return generate_response(explanation_prompt, message)
+        return generate_response(system_prompt, message)
 
-    # 🔹 4️⃣ Otherwise → Knowledge Mode
     return information_strategy(agent, message, session)
 
 
@@ -1124,7 +1122,6 @@ Instructions:
 
 
 
-
 def education_support_strategy(agent, message, session):
 
     # 🔹 STEP 1 — AI Scope Classification
@@ -1204,3 +1201,1152 @@ Instructions:
 """
 
     return generate_response(system_prompt, message)
+
+
+
+
+
+
+def insurance_transaction_strategy(agent, message, session):
+
+    from conversations.services.core.strategies import information_strategy
+
+    state = session.state or {}
+    msg = message.lower().strip()
+
+    def humanize(agent, user_message, instruction, stage=None):
+
+        from knowledge.services.retriever import retrieve_relevant_chunks
+        from conversations.services.azure_openai_service import generate_response
+
+        context = ""
+
+        system_prompt = f"""
+    {agent.resolved_prompt}
+
+    You are an Insurance Advisor at {agent.company_name}.
+
+    Current Conversation Stage: {stage}
+
+    Knowledge Context:
+    {context}
+
+    Instruction:
+    {instruction}
+
+    STRICT RULES:
+    - ONLY respond to the CURRENT STAGE
+    - DO NOT restart conversation
+    - DO NOT suggest other insurance types
+    - DO NOT ask unrelated questions
+    - DO NOT go back to menu
+    - DO NOT assume new intent
+    - Stay within the current step
+
+    DO NOT:
+    - change flow
+    - ask new questions
+    - suggest other insurance
+    - interpret user intent
+
+    Response Style:
+    - Short and natural
+    - Show options clearly if needed
+    """
+
+        return generate_response(system_prompt, user_message)
+
+    
+
+    # =====================================================
+    # 🔹 INSURANCE INFORMATION REQUEST DETECTION (NEW)
+    # =====================================================
+
+    info_request_words = [
+        "know", "information", "info", "details",
+        "explain", "tell me about", "about",
+        "what is", "how does", "guide"
+    ]
+
+    flow_request_words = [
+        "want", "need", "buy", "get", "apply",
+        "purchase", "take", "start"
+    ]
+
+    insurance_keywords = [
+        "health insurance",
+        "car insurance",
+        "vehicle insurance",
+        "term insurance",
+        "life insurance"
+    ]
+
+    # If user asking for insurance knowledge (not buying)
+    if any(word in msg for word in info_request_words) and any(ins in msg for ins in insurance_keywords):
+
+        return information_strategy(agent, message, session)
+
+
+    # =====================================================
+    # 🔹 DOCUMENT KNOWLEDGE MODE (NEW ADDITION)
+    # =====================================================
+
+    document_intent_keywords = [
+        "what information",
+        "which information",
+        "kind of information",
+        "what kind of information",
+        "which information do you have",
+        "which kind of information",
+        "what do you know",
+        "what do you have",
+        "what services",
+        "what policies",
+        "summarize",
+        "summarize the document",
+        "give me summary",
+        "summary",
+        "explain",
+        "details",
+        "tell me about",
+        "about the policy",
+        "policy information"
+    ]
+
+    if any(keyword in msg for keyword in document_intent_keywords):
+
+        # If user asked while inside flow
+        if session.stage and session.stage != "insurance_menu":
+            answer = information_strategy(agent, message, session)
+            return f"{answer}\n\nWould you like to continue where we left off?"
+        
+        return information_strategy(agent, message, session)
+
+    # =====================================================
+    # 🔹 FLOW INTERRUPTION HANDLER (NEW ADDITION)
+    # =====================================================
+
+    insurance_knowledge_keywords = [
+        "coverage", "premium", "waiting", "claim",
+        "benefit", "exclusion", "hospital",
+        "cashless", "document", "renewal",
+        "maternity", "network", "process"
+    ]
+
+    # If inside any active flow stage and user asks knowledge question
+    active_flow_stages = [
+        "health_member_type", "health_age", "health_cover",
+        "term_cover_for", "term_age",
+        "car_requirement",
+        "insurance_lead_capture"
+    ]
+
+    if session.stage in active_flow_stages and len(msg.split()) > 2:
+        if any(word in msg for word in insurance_knowledge_keywords):
+
+            answer = information_strategy(agent, message, session)
+
+            return (
+                f"{answer}\n\n"
+                "Shall we continue where we left off?"
+            )
+
+    # =====================================================
+    # HANDLE CONFIRM SWITCH FIRST
+    # =====================================================
+
+    if session.stage == "confirm_switch":
+
+        switch_to = state.get("switch_to")
+        previous_stage = state.get("previous_stage")
+
+        if "yes" in msg or msg == "y":
+            session.state = {"product": switch_to}
+            session.stage = None
+            session.save()
+            return insurance_transaction_strategy(agent, switch_to, session)
+
+        elif "no" in msg or msg == "n":
+            session.stage = previous_stage
+            session.save()
+            return humanize(agent, message, "Tell user we will continue with current insurance selection.")
+
+        else:
+            return humanize(agent, message, "Ask user to reply with Yes or No.")
+
+    # =====================================================
+    # DETECT PRODUCT FROM MESSAGE
+    # =====================================================
+
+    detected_product = None
+
+    if any(word in msg for word in ["car", "vehicle", "renew", "new car"]):
+        detected_product = "car"
+
+    elif any(word in msg for word in ["health", "medical", "hospital"]):
+        detected_product = "health"
+
+    elif any(word in msg for word in ["term", "life insurance", "life cover"]):
+        detected_product = "term"
+
+    current_product = state.get("product")
+
+    # Mid-flow switch detection
+    if detected_product and current_product and detected_product != current_product:
+        state["switch_to"] = detected_product
+        state["previous_stage"] = session.stage
+        session.state = state
+        session.stage = "confirm_switch"
+        session.save()
+
+        return (
+            f"You're currently in {current_product.capitalize()} Insurance flow.\n\n"
+            f"Would you like to switch to {detected_product.capitalize()} Insurance? (Yes/No)"
+        )
+    
+    # HARD LOCK
+    detected_product = current_product if current_product else detected_product
+
+    # =====================================================
+    # SMART INITIAL ENTRY
+    # =====================================================
+
+    if not state.get("product") and session.stage is None:
+
+        if detected_product == "car":
+            session.stage = "car_requirement"
+            session.state = {"product": "car"}
+            session.save()
+
+            return humanize(agent, message,
+                "Ask what user needs: New Car Insurance, Renewal, or Claim Assistance."
+            )
+        elif detected_product == "health":
+
+            # Smart member detection from first message
+            member_type = None
+
+            if "family" in msg:
+                member_type = "Family"
+            elif "parents" in msg:
+                member_type = "Parents"
+            elif "spouse" in msg:
+                member_type = "Self + Spouse"
+            elif "self" in msg:
+                member_type = "Self"
+
+            session.state = {"product": "health"}
+
+            # If member type already mentioned → skip asking again
+            if member_type:
+                session.state["member_type"] = member_type
+                session.stage = "health_age"
+                session.save()
+
+                return humanize(agent, message,
+                    "Ask age group of eldest member: 18-25, 26-35, 36-45, 46-55, 56-65, 65+."
+                )
+
+            # Otherwise ask normally
+            session.stage = "health_member_type"
+            session.save()
+
+            return humanize(agent, message,
+                "Ask which type of insurance you need: Self, Spouse, Family, Parents, Complete Family."
+            )
+
+        elif detected_product == "term":
+            session.stage = "term_cover_for"
+            session.state = {"product": "term"}
+            session.save()
+
+            return humanize(agent, message,
+                "Ask who the policy is for: Self or Spouse."
+            )
+
+        # If nothing detected → show menu
+        if not state.get("product"):
+            session.stage = "insurance_menu"
+            session.save()
+
+            return humanize(agent, message,
+                "Welcome user and show options: Health Insurance, Car Insurance, Term Life Insurance."
+            )
+
+    # =====================================================
+    # MASTER MENU
+    # =====================================================
+
+    if session.stage == "insurance_menu":
+
+        if msg in ["1", "health", "health insurance"]:
+            session.stage = "health_member_type"
+            session.state = {"product": "health"}
+            session.save()
+
+            return humanize(agent, message,
+                "Ask  which type of insurance you need: Self, Self + Spouse, Family, Parents, Complete Family."
+            )
+
+        elif msg in ["2", "car", "car insurance"]:
+            session.stage = "car_requirement"
+            session.state = {"product": "car"}
+            session.save()
+
+            return humanize(agent, message,
+                "Ask what the user needs: New Car Insurance, Renew Existing Policy, or Claim Assistance."
+            )
+
+        elif msg in ["3", "term", "life", "term life insurance"]:
+            session.stage = "term_cover_for"
+            session.state = {"product": "term"}
+            session.save()
+
+            return humanize(agent, message,
+                "Ask who the policy is for: Self or Spouse."
+            )
+
+        elif msg in ["4", "advisor", "talk"]:
+            session.stage = "insurance_lead_capture"
+            session.state = {"product": "advisor"}
+            session.save()
+
+            return humanize(agent, message,
+                "Ask the user to share their name to connect with an advisor."
+            )
+
+        else:
+            return humanize(agent, message,
+                "Ask the user to select a valid option from the menu."
+            )
+
+    # =====================================================
+    # HEALTH FLOW
+    # =====================================================
+
+    if session.stage == "health_member_type":
+        state["member_type"] = message
+        session.stage = "health_age"
+        session.state = state
+        session.save()
+
+        return humanize(agent, message,
+            "Ask age group of eldest member. 18-25, 26-35, 36-45, 46-55, 56-65, Above 65 ",
+        )
+
+    if session.stage == "health_age":
+        state["age_band"] = message
+        session.stage = "health_cover"
+        session.state = state
+        session.save()
+
+        return humanize(agent, message,
+            "Ask preferred sum insured: 3-5L, 5-10L, 10-25L, 25L+.",
+            session.stage
+        )
+
+    if session.stage == "health_cover":
+        state["coverage"] = message
+        session.stage = "insurance_lead_capture"
+        session.state = state
+        session.save()
+
+        return humanize(agent, message,
+            "Ask user to share their name."
+        )
+    
+    # =====================================================
+    # 🚗 CAR FLOW (NEW LOGIC ADDED)
+    # =====================================================
+
+    if session.stage == "car_requirement":
+
+        state["requirement"] = message.strip()
+        session.stage = "car_vehicle_details"
+        session.state = state
+        session.save()
+
+        return humanize(agent, message,
+            "Ask for car registration number OR brand, model, fuel, year."
+        )
+
+    if session.stage == "car_vehicle_details":
+
+        state["vehicle_details"] = message.strip()
+        session.stage = "car_policy_status"
+        session.state = state
+        session.save()
+
+        return humanize(agent, message,
+            "Ask current policy status."
+        )
+
+    if session.stage == "car_policy_status":
+
+        state["policy_status"] = message.strip()
+        session.stage = "car_plan_type"
+        session.state = state
+        session.save()
+
+        return humanize(agent, message,
+            "Ask insurance type: Third Party or Comprehensive."
+        )
+
+    if session.stage == "car_plan_type":
+
+        state["plan_type"] = message.strip()
+        session.stage = "car_addons"
+        session.state = state
+        session.save()
+
+        return humanize(agent, message,
+            "Ask which add-ons user wants."
+            " Zero Depreciation,\n"
+            " Engine Protection,\n"
+            " Roadside Assistance,\n"
+            " Return to Invoice,\n"
+            " NCB Protection"
+        )
+
+    if session.stage == "car_addons":
+
+        state["addons"] = message.strip()
+        session.stage = "car_previous_claim"
+        session.state = state
+        session.save()
+
+        return humanize(agent, message,
+            "Ask if user made any claims last year."
+        )
+
+    if session.stage == "car_previous_claim":
+
+        state["previous_claim"] = message.strip()
+        session.stage = "insurance_lead_capture"
+        session.state = state
+        session.save()
+
+        return humanize(agent, message,
+            "Ask user to share their name."
+        )
+
+    # =====================================================
+    # TERM LIFE INSURANCE FLOW
+    # =====================================================
+
+    if session.stage == "term_cover_for":
+
+        state["cover_for"] = message.strip()
+        session.stage = "term_age"
+        session.state = state
+        session.save()
+
+        return humanize(agent, message,
+            "Ask age group options. 18-25, 26-35, 36-45, 46-55, 56-65, Above 65 "
+        )
+
+
+    if session.stage == "term_age":
+
+        state["age"] = message.strip()
+        session.stage = "term_income"
+        session.state = state
+        session.save()
+
+        return humanize(agent, message,
+            "Ask preferred sum insured: 3-5L, 5-10L, 10-25L, 25L+."
+        )
+
+
+    if session.stage == "term_income":
+
+        state["income"] = message.strip()
+        session.stage = "term_coverage"
+        session.state = state
+        session.save()
+        
+
+        return humanize(agent, message,
+            "Ask life cover amount options. 50L, 1 Crore, 2 Crore, Above 2 Crore"
+        )
+
+
+    if session.stage == "term_coverage":
+
+        state["coverage"] = message.strip()
+        session.stage = "term_duration"
+        session.state = state
+        session.save()
+
+        return humanize(agent, message,
+            "Ask policy duration options."
+            "Till age 60,\n"
+            "Till age 65,\n"
+            "Till age 70,\n"
+            "Whole life coverage"
+        )
+
+
+    if session.stage == "term_duration":
+
+        state["duration"] = message.strip()
+        session.stage = "term_smoker"
+        session.state = state
+        session.save()
+
+        return humanize(agent, message,
+            "Ask if the user is a smoker (Yes/No)."
+        )
+
+
+    if session.stage == "term_smoker":
+
+        state["smoker"] = message.strip()
+        session.stage = "term_riders"
+        session.state = state
+        session.save()
+
+        return humanize(agent, message,
+            "Ask which riders user wants."
+            "Critical illness rider,\n"
+            "Accidental death benefit,\n"
+            "Waiver of premium,\n"
+            "Income payout option\n"
+            "You can choose one or multiple riders."
+        )
+
+
+    if session.stage == "term_riders":
+
+        state["riders"] = message.strip()
+        session.stage = "insurance_lead_capture"
+        session.state = state
+        session.save()
+
+        return humanize(agent, message,
+            "Ask user to share their name."
+        )
+
+
+    # if session.stage == "insurance_lead_phone":
+
+    #     state["phone"] = message.strip()
+    #     session.stage = "insurance_lead_email"
+    #     session.state = state
+    #     session.save()
+
+    #     return humanize(agent, message, "Ask for phone number and email address.")
+
+
+    # if session.stage == "insurance_lead_email":
+
+    #     state["email"] = message.strip()
+    #     session.stage = "completed"
+    #     session.state = state
+    #     session.save()
+
+    #     return humanize(agent, message,
+    #         "Thank user and tell advisor will contact soon."
+    #     )
+
+    # =====================================================
+    # LEAD CAPTURE
+    # =====================================================
+
+    if session.stage == "insurance_lead_capture":
+
+        if not state.get("name"):
+            state["name"] = message.strip()
+            session.state = state
+            session.save()
+            return humanize(agent, message, "Ask for phone number.")
+
+        elif not state.get("phone"):
+            state["phone"] = message.strip()
+            session.state = state
+            session.save()
+            return humanize(agent, message, "Ask for email address.")
+
+        elif not state.get("email"):
+            state["email"] = message.strip()
+            session.stage = "completed"
+            session.state = state
+            session.save()
+
+            return (
+                " Thank you for choosing us!\n\n"
+                "We’re preparing the best insurance plan for you.\n"
+                "Our expert will connect with you shortly."
+            )
+
+     # =====================================================
+    # 🔒 HARD STOP AFTER COMPLETION
+    # =====================================================
+
+    if session.stage == "completed":
+        return "thank you. Our advisor will contact you shortly."
+
+
+
+
+
+
+
+
+# def insurance_transaction_strategy(agent, message, session):
+
+#     from knowledge.services.retriever import retrieve_relevant_chunks
+#     from conversations.services.azure_openai_service import generate_response
+
+#     msg = message.lower()
+
+#     # =====================================================
+#     # STEP 1 — RETRIEVE KNOWLEDGE FROM DOCUMENT
+#     # =====================================================
+
+#     context = retrieve_relevant_chunks(agent, message)
+
+#     # =====================================================
+#     # STEP 2 — BUILD SYSTEM PROMPT
+#     # =====================================================
+
+#     system_prompt = f"""
+# {agent.resolved_prompt}
+
+# You are an Insurance Advisor for {agent.company_name}.
+
+# Use ONLY the knowledge document provided below to guide the user.
+
+# Knowledge Context:
+# {context}
+
+# Instructions:
+# - Follow the conversation flows defined in the document.
+# - Ask the next step based on the flow.
+# - Provide clear options when available.
+# - If the user asks about claims, benefits, or policy terms, answer from the document.
+# - Do NOT invent information outside the document.
+# - Do NOT guarantee claims or returns.
+# - Encourage consultation with a licensed advisor when necessary.
+
+# Conversation Rules:
+# - Keep answers short (2–3 sentences).
+# - When multiple options exist, present them clearly.
+# """
+
+#     # =====================================================
+#     # STEP 3 — GENERATE RESPONSE
+#     # =====================================================
+
+#     return generate_response(system_prompt, message)
+
+
+
+
+
+
+
+
+
+
+
+def mutual_fund_advisor_strategy(agent, message, session):
+
+    from knowledge.services.retriever import retrieve_relevant_chunks
+    from conversations.services.azure_openai_service import generate_response
+    import re
+
+    msg = message.lower()
+    state = session.state or {}
+
+    # =====================================================
+    #  DOCUMENT KNOWLEDGE CHECK (RAG FIRST)
+    # =====================================================
+
+    context = retrieve_relevant_chunks(agent, message)
+
+    if context and context.strip():
+
+        system_prompt = f"""
+{agent.resolved_prompt}
+
+Knowledge Context:
+{context}
+
+Instructions:
+- Answer ONLY using the provided document context.
+- If the answer exists in the document, explain it clearly.
+- Keep the response under 3 sentences.
+- Do not invent information outside the document.
+"""
+
+        return generate_response(system_prompt, message)
+
+    # =====================================================
+    #  BEGINNER EXPLANATION FLOW
+    # =====================================================
+
+    beginner_keywords = [
+        "don't know", "dont know", "new to mutual fund",
+        "what is mutual fund", "mutual funds explain",
+        "i am beginner"
+    ]
+
+    if any(k in msg for k in beginner_keywords):
+
+        return (
+            "Mutual funds are investment funds where money from many investors "
+            "is pooled together and invested in assets like stocks or bonds. "
+            "They are managed by professional fund managers and allow investors "
+            "to start with small amounts through SIP or lump sum investments."
+        )
+
+
+    # =====================================================
+    #  RETIREMENT GOAL DETECTION
+    # =====================================================
+
+    if "retirement" in msg or "retire" in msg:
+
+        return (
+            "For retirement goals, investors often consider long-term investment approaches such as equity mutual funds and SIP investing. "
+            "Long-term investing allows compounding to grow wealth gradually over many years."
+        )
+
+
+    # =====================================================
+    #  DETECT INVESTMENT AMOUNT
+    # =====================================================
+
+    numbers = re.findall(r"\d+\.?\d*", msg)
+
+    if numbers and not state.get("amount"):
+
+        state["amount"] = numbers[0]
+        session.state = state
+        session.stage = "ask_investment_horizon"
+        session.save()
+
+        return (
+            f"Got it. You want to invest around ₹{state['amount']}.\n"
+            "Are you planning to invest for:\n"
+            "Short term (less than 1 year),\n"
+            "Mid term (1–3 years),\n"
+            "Long term (3+ years)?"
+        )
+
+    # =====================================================
+    #  INVESTMENT HORIZON FLOW
+    # =====================================================
+
+    if session.stage == "ask_investment_horizon":
+
+        if "short" in msg:
+
+            session.stage = None
+            session.state = {}
+            session.save()
+
+            return (
+                "For short-term goals, some investors explore trading approaches like:\n"
+                " Intraday trading,\n"
+                " Swing trading,\n"
+                " Options trading\n"
+                "These approaches generally involve higher risk and require market knowledge."
+            )
+
+        elif "mid" in msg:
+
+            session.stage = "ask_risk"
+            session.save()
+
+            return (
+                "For medium-term investing (1–3 years), investors often consider:\n"
+                " Hybrid mutual funds,\n"
+                " Balanced advantage funds,\n"
+                " Conservative equity funds\n"
+                "These aim to balance growth and stability."
+            )
+
+        elif "long" in msg:
+
+            session.stage = "ask_risk"
+            session.save()
+
+            return (
+                "For long-term investing (3+ years), investors often consider:\n"
+                " Equity mutual funds,\n"
+                " Index funds,\n"
+                " SIP investing\n"
+                "Long-term investing allows compounding to work over time."
+            )
+
+        else:
+            return "Would you prefer short-term, mid-term, or long-term investing?"
+        
+    
+    # =====================================================
+    #  RISK PROFILING
+    # =====================================================
+
+    if session.stage == "ask_risk":
+
+        if "low" in msg:
+
+            suggestion = (
+                "Investors with lower risk tolerance often consider debt funds or conservative hybrid funds."
+            )
+
+        elif "moderate" in msg:
+
+            suggestion = (
+                "Moderate risk investors often explore balanced advantage funds or hybrid mutual funds."
+            )
+
+        elif "high" in msg:
+
+            suggestion = (
+                "Higher risk investors sometimes consider equity mutual funds such as large-cap or index funds."
+            )
+
+        else:
+            return "Would you say your risk tolerance is low, moderate, or high?"
+
+        session.stage = "sip_suggestion"
+        session.save()
+
+        return (
+            f"{suggestion}\n\n"
+            "Would you like to invest through a monthly SIP or a lump-sum investment?"
+        )
+
+    # =====================================================
+    #  SIP SUGGESTION
+    # =====================================================
+
+    if session.stage == "sip_suggestion":
+
+        if "sip" in msg:
+
+            session.stage = None
+            session.state = {}
+            session.save()
+
+            return (
+                "SIP (Systematic Investment Plan) allows investors to invest a fixed amount regularly, "
+                "such as monthly. This approach helps build investment discipline and reduces timing risk."
+            )
+
+        if "lump" in msg:
+
+            session.stage = None
+            session.state = {}
+            session.save()
+
+            return (
+                "Lump-sum investing means investing the full amount at once. "
+                "Some investors use this approach when they have a larger amount ready for long-term investment."
+            )
+
+        return "Would you prefer SIP investing or lump-sum investing?"
+
+
+    # =====================================================
+    #  DEFAULT RESPONSE
+    # =====================================================
+
+    return (
+        "I can help you understand mutual funds and general investment approaches. "
+        "You can ask about mutual funds or tell me your investment amount."
+    )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def investment_advisor_strategy(agent, message, session):
+
+    from knowledge.services.retriever import retrieve_relevant_chunks
+    from conversations.services.azure_openai_service import generate_response
+    import re
+
+    msg = message.lower().strip()
+    state = session.state or {}
+
+    # =====================================================
+    # 1️⃣ DOCUMENT KNOWLEDGE (RAG FIRST)
+    # Only trigger if NO active flow
+    # =====================================================
+
+    if not session.stage:
+
+        context = retrieve_relevant_chunks(agent, message)
+
+        if context and context.strip():
+
+            system_prompt = f"""
+{agent.resolved_prompt}
+
+Knowledge Context:
+{context}
+
+Instructions:
+- Answer strictly using the document context.
+- Keep response within 2–3 sentences.
+- Do not generate financial advice outside the document.
+"""
+
+            return generate_response(system_prompt, message)
+
+    # =====================================================
+    # 2️⃣ BEGINNER INVESTMENT EXPLANATION
+    # =====================================================
+
+    beginner_keywords = [
+        "what is investment",
+        "i want to start investing",
+        "how to start investing",
+        "new to investing",
+        "beginner"
+    ]
+
+    if any(k in msg for k in beginner_keywords):
+
+        return (
+            "Investing means allocating money into financial assets such as stocks, "
+            "mutual funds, bonds, or other instruments with the goal of growing wealth "
+            "over time."
+        )
+
+
+    # =====================================================
+    # 2.5️⃣ DEMO INTEREST RATE / RETURN QUESTIONS
+    # =====================================================
+
+    interest_keywords = [
+        "interest", "rate", "return", "returns", "roi", "profit"
+    ]
+
+    if any(word in msg for word in interest_keywords):
+
+        if "short" in msg:
+            rate = "6.5%"
+
+        elif "mid" in msg:
+            rate = "7.5%"
+
+        elif "long" in msg:
+            rate = "9%"
+
+        else:
+            return (
+                "Investment returns depend on market conditions and investment duration. "
+                "For demonstration purposes, investors sometimes consider approximate ranges such as:\n"
+                "Short-term investments: around 6.5%,\n"
+                "Mid-term investments: around 7.5%,\n"
+                "Long-term investments: around 9%,\n"
+                "This information is provided for educational purposes only."
+            )
+
+    # =====================================================
+    # 3️⃣ DETECT INVESTMENT AMOUNT
+    # =====================================================
+
+    numbers = re.findall(r"\d+\.?\d*", msg)
+
+    if numbers and not state.get("amount"):
+
+        state["amount"] = numbers[0]
+        session.stage = "investment_horizon"
+        session.state = state
+        session.save()
+
+        return (
+            f"Got it. You are planning to invest around ₹{state['amount']}.\n\n"
+            "Is your investment horizon:,\n"
+            "Short term (less than 1 year),\n"
+            "Mid term (1–5 years),\n"
+            "Long term (5+ years)?"
+        )
+
+    # =====================================================
+    # 4️⃣ INVESTMENT HORIZON
+    # =====================================================
+
+    if session.stage == "investment_horizon":
+
+        if "short" in msg:
+
+            session.stage = None
+            session.state = {}
+            session.save()
+
+            return (
+                "For short-term investing, some investors explore trading approaches "
+                "such as intraday trading or swing trading. These approaches involve "
+                "higher risk and require market knowledge."
+            )
+
+        if "mid" in msg:
+
+            session.stage = "risk_profile"
+            session.save()
+
+            return (
+                "For medium-term investing, investors often look at diversified options "
+                "such as balanced portfolios or hybrid investment strategies.\n"
+                "What level of risk are you comfortable with?,\n"
+                "Low risk,\n"
+                "Moderate risk,\n"
+                "High risk"
+            )
+
+        if "long" in msg:
+
+            session.stage = "risk_profile"
+            session.save()
+
+            return (
+                "Long-term investing focuses on wealth creation and compounding.\n"
+                "What level of investment risk are you comfortable with?,\n"
+                "Low risk,\n"
+                "Moderate risk,\n"
+                "High risk"
+            )
+
+        return "Would you prefer short-term, mid-term, or long-term investing?"
+
+    # =====================================================
+    # 5️⃣ RISK PROFILING
+    # =====================================================
+
+    if session.stage == "risk_profile":
+
+        if "low" in msg:
+
+            suggestion = (
+                "Investors with lower risk tolerance often consider instruments "
+                "such as bonds, fixed income investments, or conservative portfolios."
+            )
+
+        elif "moderate" in msg:
+
+            suggestion = (
+                "Moderate risk investors often consider diversified portfolios "
+                "including mutual funds, hybrid funds, or balanced investments."
+            )
+
+        elif "high" in msg:
+
+            suggestion = (
+                "Higher risk investors sometimes explore equity-focused investments "
+                "or growth-oriented portfolios."
+            )
+
+        else:
+            return "Would you say your risk tolerance is low, moderate, or high?"
+
+        session.stage = "investment_goal"
+        session.save()
+
+        return (
+            f"{suggestion}\n\n"
+            "What is your main investment goal?\n"
+            "Retirement planning\n"
+            "Wealth creation\n"
+            "Short-term financial goal"
+        )
+
+    # =====================================================
+    # 6️⃣ GOAL DETECTION
+    # =====================================================
+
+    if session.stage == "investment_goal":
+
+        if "retirement" in msg:
+
+            goal_response = (
+                "For retirement planning, investors usually focus on long-term "
+                "investment strategies that allow compounding over many years."
+            )
+
+        elif "wealth" in msg:
+
+            goal_response = (
+                "For wealth creation, investors often focus on diversified portfolios "
+                "with growth-oriented assets."
+            )
+
+        elif "short" in msg:
+
+            goal_response = (
+                "Short-term goals often require more stable investments to reduce "
+                "exposure to market fluctuations."
+            )
+
+        else:
+            return (
+                "Could you tell me your goal? For example: retirement planning, "
+                "wealth creation, or a short-term goal."
+            )
+
+        session.stage = "investment_method"
+        session.save()
+
+        return (
+            f"{goal_response}\n"
+            "Would you prefer investing through:,\n"
+            "Monthly SIP,\n"
+            "Lump sum investment?"
+        )
+
+    # =====================================================
+    # 7️⃣ INVESTMENT METHOD
+    # =====================================================
+
+    if session.stage == "investment_method":
+
+        if "sip" in msg:
+
+            session.stage = None
+            session.state = {}
+            session.save()
+
+            return (
+                "SIP (Systematic Investment Plan) allows investors to invest "
+                "a fixed amount regularly, typically monthly. This helps build "
+                "investment discipline and reduces timing risk."
+            )
+
+        if "lump" in msg:
+
+            session.stage = None
+            session.state = {}
+            session.save()
+
+            return (
+                "A lump sum investment means investing the full amount at once. "
+                "Some investors use this approach when they have a large amount "
+                "available for long-term investment."
+            )
+
+        return "Would you prefer SIP investing or lump-sum investing?"
+
+    # =====================================================
+    # DEFAULT RESPONSE
+    # =====================================================
+
+    return (
+        "I can help explain investment concepts such as asset allocation, "
+        "risk levels, and investment strategies. You can also tell me how "
+        "much you plan to invest."
+    )
