@@ -841,6 +841,7 @@ button:active {
       <option value="" disabled selected>Select Role</option>
     </select>
     <button onclick="startChat()">🚀 Start</button>
+    <button onclick="testWebSocket()">Test WebSocket</button>
   </div>
 
   <div class="card" id="chatCard" style="display:none;">
@@ -910,9 +911,8 @@ const INDUSTRY_API = "/api/agents/industries/";
 const ROLE_API = "/api/agents/roles/";
 
 // ✅ ACTIVE ROLES (can grow anytime)
-// const ACTIVE_ROLE_IDS = ["1","2","10","11","12","6","7","8","9","3","4","5","13","14","15"]; 
-
-const ACTIVE_ROLE_IDS = ["1","2","4","5","6","15","16","17","18","19","20","21","22","23","24"];
+{% comment %} const ACTIVE_ROLE_IDS = ["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15"];  {% endcomment %}
+const ACTIVE_ROLE_IDS = ["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","20","21","22","23","24","25"];
 
 // Appointment Scheduler, Doctor Booking, Lab Reports (example)
 
@@ -1340,6 +1340,39 @@ loadIndustries();
   obs.observe(rol, { childList: true });
 })();
 </script>
+
+
+<script>
+/* ===== WEBSOCKET TEST ===== */
+
+function testWebSocket(){
+
+    const socket = new WebSocket("ws://127.0.0.1:8000/ws/voice-bot/");
+
+    socket.onopen = function(){
+        console.log("✅ WebSocket Connected");
+
+        socket.send(JSON.stringify({
+            agent_id: 1,
+            message: "hello",
+            session_id: null
+        }));
+    };
+
+    socket.onmessage = function(event){
+        console.log("🤖 Server Response:", event.data);
+    };
+
+    socket.onerror = function(error){
+        console.log("❌ WebSocket Error:", error);
+    };
+
+    socket.onclose = function(){
+        console.log("🔌 Connection Closed");
+    };
+}
+</script>
+
 
 </body>
 </html>
