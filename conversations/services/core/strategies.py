@@ -3204,7 +3204,7 @@ def insurance_transaction_strategy(agent, message, session):
     state = session.state or {}
     msg = message.lower().strip()
 
-    def humanize(agent, user_message, instruction, stage=None):
+    # def humanize(agent, user_message, instruction, stage=None):
 
     def clean_for_voice(text):
         text = re.sub(r"\b\d+\.\s*", "", text)  # remove 1. 2. 3.
