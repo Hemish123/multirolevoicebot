@@ -3196,7 +3196,6 @@ Instructions:
 
     return reply
 
-
 def insurance_transaction_strategy(agent, message, session):
 
     from conversations.services.core.strategies import information_strategy
@@ -3381,6 +3380,10 @@ def insurance_transaction_strategy(agent, message, session):
 
     current_product = state.get("product")
 
+    # 🚨 HARD FLOW LOCK (PREVENT RESET)
+    if current_product and session.stage:
+        detected_product = current_product
+
     # Mid-flow switch detection
     if detected_product and current_product and detected_product != current_product:
         state["switch_to"] = detected_product
@@ -3394,14 +3397,26 @@ def insurance_transaction_strategy(agent, message, session):
             f"Would you like to switch to {detected_product.capitalize()} Insurance? (Yes/No)"
         )
     
-    # HARD LOCK
-    detected_product = current_product if current_product else detected_product
+    # HARD LOCK (ONLY WHEN FLOW STARTED)
+    if current_product and session.stage:
+        detected_product = current_product
+
+    # =====================================================
+    # HANDLE GREETING → DIRECT PRODUCT (FIX LOOP)
+    # =====================================================
+
+    if not state.get("product") and detected_product:
+        session.stage = None  # reset cleanly before starting flow
 
     # =====================================================
     # SMART INITIAL ENTRY
     # =====================================================
 
-    if not state.get("product") and session.stage is None:
+    if not state.get("product") :
+
+        # 🚨 HARD FLOW LOCK (PREVENT RESET)
+        if current_product and session.stage:
+            detected_product = current_product
 
         if detected_product == "car":
             session.stage = "car_requirement"
@@ -3467,7 +3482,7 @@ def insurance_transaction_strategy(agent, message, session):
     # MASTER MENU
     # =====================================================
 
-    if session.stage == "insurance_menu":
+    if session.stage == "insurance_menu" and not state.get("product"):
 
         if msg in ["1", "health", "health insurance"]:
             session.stage = "health_member_type"
