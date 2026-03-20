@@ -231,6 +231,10 @@ def is_numeric_query(query: str) -> bool:
 
 
 def retrieve_relevant_chunks(agent, query, limit=5):
+
+    import time  # ✅ added
+    rag_start = time.time()  # ✅ start timer
+
     """
     Returns concatenated relevant document chunks.
     If nothing relevant is found, returns fallback chunks.
@@ -241,6 +245,7 @@ def retrieve_relevant_chunks(agent, query, limit=5):
     )
 
     if not chunks.exists():
+        print("⏱ RAG Time:", time.time() - rag_start)
         return ""
 
     # Normalize keywords
@@ -280,6 +285,7 @@ def retrieve_relevant_chunks(agent, query, limit=5):
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
 
     if scored_chunks:
+        print("⏱ RAG Time:", time.time() - rag_start)
         return "\n\n".join(
             [c for _, c in scored_chunks[:limit]]
         )
@@ -334,13 +340,6 @@ Document Chunks:
         if str(i) in chunk_map
     ]
 
-    if selected_chunks:
-        return "\n\n".join(selected_chunks[:limit])
-
-    # --------------------------------------------------
-    # FINAL FALLBACK (Guarantee Knowledge Context)
-    # --------------------------------------------------
-
-    return "\n\n".join(
-        chunk.content for chunk in chunks[:limit]
-    )
+    if not selected_chunks:
+        print("⏱ RAG Time:", time.time() - rag_start)
+        return ""

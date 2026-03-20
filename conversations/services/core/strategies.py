@@ -838,9 +838,6 @@ Do not hallucinate.
     reply = normalize_course_names(reply)
     return reply
  
- 
-
-
 
 
 def transaction_strategy(agent, message, session):
@@ -1437,78 +1434,48 @@ def site_visit_transaction_strategy(agent, message, session):
 
 def loan_financial_strategy(agent, message, session):
 
+    import re
+
     msg = message.lower()
 
-    # 🔹 Step 1 — Extract structured data safely
-    extraction_prompt = f"""
-Extract financial details from this message.
+    # 🔹 Lightweight numeric extraction (NO LLM)
+    numbers = re.findall(r"\d+\.?\d*", msg)
+    numbers = [float(n) for n in numbers]
 
-Return JSON only:
-{{
-  "monthly_income": number or null,
-  "existing_emi": number or null,
-  "loan_amount_requested": number or null,
-  "tenure_years": number or null,
-  "interest_rate": number or null
-}}
+    income = numbers[0] if len(numbers) > 0 else 0
+    loan_amount = numbers[1] if len(numbers) > 1 else 0
 
-Message: "{message}"
-"""
+    tenure_years = 20
+    interest_rate = 8.5
 
-    raw = generate_response(extraction_prompt, message)
+    # 🔹 Eligibility Mode
+    if income > 0 and "income" in msg:
 
-    import json
-    try:
-        data = json.loads(raw)
-    except:
-        data = {}
-
-    if not isinstance(data, dict):
-        data = {}
-
-    # 🔹 Safe numeric initialization
-    income = float(data.get("monthly_income") or 0)
-    existing_emi = float(data.get("existing_emi") or 0)
-    loan_amount = float(data.get("loan_amount_requested") or 0)
-    tenure_years = float(data.get("tenure_years") or 20)
-    interest_rate = float(data.get("interest_rate") or 8.5)
-
-    # 🔹 2️⃣ Eligibility Estimation Mode
-    if income > 0:
-
-        eligible_emi = (income * 0.5) - existing_emi
-
+        eligible_emi = income * 0.5
         monthly_rate = (interest_rate / 100) / 12
         tenure_months = tenure_years * 12
 
-        if monthly_rate > 0:
-            estimated_loan = (
-                eligible_emi *
-                ((1 + monthly_rate) ** tenure_months - 1) /
-                (monthly_rate * (1 + monthly_rate) ** tenure_months)
-            )
-        else:
-            estimated_loan = eligible_emi * tenure_months
+        estimated_loan = (
+            eligible_emi *
+            ((1 + monthly_rate) ** tenure_months - 1) /
+            (monthly_rate * (1 + monthly_rate) ** tenure_months)
+        )
 
         estimated_loan_lakh = round(estimated_loan / 100000, 1)
 
-        explanation_prompt = f"""
+        system_prompt = f"""
 You are a professional home loan advisor.
 
-Monthly Income: ₹{income}
-Existing EMI: ₹{existing_emi}
-Estimated Loan Eligibility: ₹{estimated_loan_lakh} lakh
+Estimated Loan Eligibility: {estimated_loan_lakh} lakh
 
-Rules:
-- Keep answer under 4 sentences.
-- No bullet points.
-- Professional and human tone.
-- Mention final approval depends on bank evaluation.
+Keep answer under 4 sentences.
+Professional tone.
+Mention final approval depends on bank evaluation.
 """
 
-        return generate_response(explanation_prompt, message)
+        return generate_response(system_prompt, message)
 
-    # 🔹 3️⃣ EMI Calculation Mode
+    # 🔹 EMI Mode
     if loan_amount > 0:
 
         monthly_rate = (interest_rate / 100) / 12
@@ -1522,22 +1489,16 @@ Rules:
 
         emi_value = round(emi)
 
-        explanation_prompt = f"""
+        system_prompt = f"""
 You are a professional home loan advisor.
 
-Loan Amount: ₹{loan_amount}
-Interest Rate: {interest_rate}%
-Tenure: {tenure_years} years
-Calculated EMI: ₹{emi_value}
+Calculated EMI: {emi_value}
 
-Rules:
-- Keep response short (max 4 sentences).
-- Explain clearly and professionally.
+Keep response short and professional.
 """
 
-        return generate_response(explanation_prompt, message)
+        return generate_response(system_prompt, message)
 
-    # 🔹 4️⃣ Otherwise → Knowledge Mode
     return information_strategy(agent, message, session)
 
 
@@ -1848,7 +1809,6 @@ Instructions:
 """
 
     return generate_response(system_prompt, message)
-
 
 
 
@@ -3238,6 +3198,13 @@ Instructions:
 
 
 def insurance_transaction_strategy(agent, message, session):
+
+    from conversations.services.core.strategies import information_strategy
+
+    state = session.state or {}
+    msg = message.lower().strip()
+
+    def humanize(agent, user_message, instruction, stage=None):
 
     def clean_for_voice(text):
         text = re.sub(r"\b\d+\.\s*", "", text)  # remove 1. 2. 3.
