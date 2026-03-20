@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import ConversationLog, ConversationSession
+from .models import ConversationLog, ConversationSession, Conversation, Message
 
 
 @admin.register(ConversationLog)
@@ -21,3 +21,6 @@ class ConversationSessionAdmin(admin.ModelAdmin):
     search_fields = ("session_id", "agent__name")
     list_filter = ("agent", "current_intent", "stage")
     readonly_fields = ("created_at", "updated_at")
+
+admin.site.register(Conversation)
+admin.site.register(Message)

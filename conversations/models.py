@@ -23,3 +23,35 @@ class ConversationSession(models.Model):
 
     def __str__(self):
         return f"{self.agent.name} - {self.session_id}"
+    
+
+
+class Conversation(models.Model):
+    agent = models.ForeignKey(VoiceAgent, on_delete=models.CASCADE)
+
+    session_id = models.CharField(max_length=100, unique=True)
+    user_number = models.CharField(max_length=20)
+
+    started_at = models.DateTimeField(auto_now_add=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.user_number} - {self.session_id}"
+
+
+class Message(models.Model):
+    ROLE_CHOICES = [
+        ("user", "User"),
+        ("bot", "Bot"),
+    ]
+
+    conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.CASCADE,
+        related_name="messages"
+    )
+
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES)
+    text = models.TextField()
+
+    created_at = models.DateTimeField(auto_now_add=True)

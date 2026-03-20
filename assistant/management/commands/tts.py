@@ -94,6 +94,9 @@ if not AZURE_SPEECH_KEY or not AZURE_SPEECH_REGION:
 def synthesize_to_base64(text: str, voice="en-IN-NeerjaNeural") -> str:
     if not text:
         return ""
+    
+    text = text.strip()
+    text = text.replace("&", "and").replace("\n", " ")
 
     speech_config = speechsdk.SpeechConfig(
         subscription=AZURE_SPEECH_KEY,
@@ -101,12 +104,29 @@ def synthesize_to_base64(text: str, voice="en-IN-NeerjaNeural") -> str:
     )
     speech_config.speech_synthesis_voice_name = voice
 
+    # ✅ Telecom optimized
+    speech_config.set_speech_synthesis_output_format(
+        speechsdk.SpeechSynthesisOutputFormat.Raw8Khz16BitMonoPcm
+    )
+
+
     synthesizer = speechsdk.SpeechSynthesizer(
         speech_config=speech_config,
         audio_config=None
     )
 
-    result = synthesizer.speak_text_async(text).get()
+    # result = synthesizer.speak_text_async(text).get()
+    ssml = f"""
+    <speak version='1.0' xml:lang='en-IN'>
+        <voice name='{voice}'>
+            <prosody rate='-5%' pitch='0%'>
+                {text}
+            </prosody>
+        </voice>
+    </speak>
+    """
+
+    result = synthesizer.speak_ssml_async(ssml).get()
 
     if result.reason != speechsdk.ResultReason.SynthesizingAudioCompleted:
         raise RuntimeError("Azure TTS failed")
