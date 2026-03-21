@@ -30,31 +30,29 @@ def create_conversation(agent_id, session_id, user_number):
         user_number=user_number
     )
 
-
 @sync_to_async
 def save_message(conversation, role, text):
+    last_msg = Message.objects.filter(conversation=conversation).order_by('-created_at').first()
+
+    # 🔥 prevent duplicate
+    if last_msg and last_msg.text.strip() == text.strip() and last_msg.role == role:
+        return
+
     Message.objects.create(
         conversation=conversation,
         role=role,
         text=text
     )
 
+@sync_to_async
+def update_user_number(conversation, number):
+    conversation.user_number = number
+    conversation.save()
 
 @sync_to_async
 def close_conversation(conversation):
     conversation.ended_at = timezone.now()
     conversation.save()
-
-
-
-
-
-
-
-
-
-
-
 
 
 @sync_to_async
@@ -141,7 +139,13 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
         params = parse_qs(query_string)
 
         self.agent_id = params.get("agent_id", [None])[0]
-        self.user_number = params.get("from", ["unknown"])[0]
+        self.user_number = (
+            params.get("from", [None])[0] or
+            params.get("From", [None])[0] or
+            params.get("caller_id", [None])[0] or
+            params.get("phone", [None])[0] or
+            "unknown"
+        )
 
         if not self.agent_id:
             await self.close()
@@ -152,9 +156,12 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
 
 
         self.recognizer, self.push_stream = create_speech_recognizer()
-        import time
+        # import time
 
-        self.session_id = str(time.time())
+        # self.session_id = str(time.time())
+
+        import uuid
+        self.session_id = str(uuid.uuid4())
 
         self.conversation = await create_conversation(
             self.agent_id,
@@ -174,6 +181,18 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
         self.processing_final = False
         self.finalize_task = None
 
+        # 🔥 STABLE PARTIAL DETECTION (ADD HERE)
+        self.last_partial_text = ""
+        self.partial_stable_time = time.time()
+
+        # 🔥 ADD HERE (IMPORTANT)
+        self.last_processed_text = ""
+        self.last_final_text = ""
+
+        # 🔥 DYNAMIC SPEECH DETECTION
+        self.speech_active = False
+        self.silence_start_time = None
+
 
         def handle_recognizing(evt):
             if evt.result.text:
@@ -181,30 +200,71 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
 
                 print("🟡 Recognizing:", text)
 
+                current_time = time.time()
+
+                # ✅ Update partial
                 self.partial_text = text
-                self.last_speech_time = time.time()
                 self.is_user_speaking = True
 
+                # 🔥 INIT (first time)
+                if not hasattr(self, "last_partial_text"):
+                    self.last_partial_text = ""
+                    self.partial_stable_time = current_time
 
-                asyncio.get_event_loop().call_soon_threadsafe(
-                    lambda: asyncio.create_task(self.finalize_if_silent())
-                )
+                # 🔥 TEXT IS STILL GROWING → WAIT
+                if text != self.last_partial_text:
+                    self.last_partial_text = text
+                    self.partial_stable_time = current_time
+                    return
+
+                # 🔥 TEXT STABLE → TRIGGER FAST
+                if (
+                    current_time - self.partial_stable_time > 0.2 and
+                    not self.processing_final and
+                    not self.is_bot_speaking and
+                    len(text.split()) >= 3
+                ):
+                    print("⚡ STABLE EARLY TRIGGER")
+
+                    self.processing_final = True
+
+                    async def safe_call():
+                        try:
+                            await self.handle_ai_reply(text)
+                        finally:
+                            self.processing_final = False
+
+                    asyncio.get_event_loop().call_soon_threadsafe(
+                        lambda: asyncio.create_task(safe_call())
+                    )
+
+
+                # asyncio.get_event_loop().call_soon_threadsafe(
+                #     lambda: asyncio.create_task(self.finalize_if_silent())
+                # )
 
                 # =====================================
                 # 🔥 ADD THIS (SAFE EARLY RESPONSE)
                 # =====================================
-                if (
-                    len(text.split()) >= 3
-                    and not self.processing_final
-                    and not self.is_bot_speaking
-                ):
-                    print("⚡ EARLY RESPONSE TRIGGER")
+                # if (
+                #     len(text.split()) >= 3
+                #     and not self.processing_final
+                #     and not self.is_bot_speaking
+                # ):
+                #     print("⚡ EARLY RESPONSE TRIGGER")
 
-                    self.processing_final = True
+                #     self.processing_final = True
 
-                    asyncio.get_event_loop().call_soon_threadsafe(
-                        lambda: asyncio.create_task(self.handle_ai_reply(text))
-                    )
+                #     # # ✅ SAVE USER MESSAGE
+                #     # asyncio.get_event_loop().call_soon_threadsafe(
+                #     #     lambda: asyncio.create_task(
+                #     #         save_message(self.conversation, "user", text)
+                #     #     )
+                #     # )
+
+                #     asyncio.get_event_loop().call_soon_threadsafe(
+                #         lambda: asyncio.create_task(self.handle_ai_reply(text))
+                #     )
 
         def handle_recognized(evt):
             print("🔥 CALLBACK TRIGGERED") 
@@ -212,13 +272,14 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
                 text = evt.result.text.strip()
 
                 print("🟢 Final STT:", text)
-                # ✅ SAVE USER MESSAGE
-                asyncio.create_task(
-                    save_message(self.conversation, "user", text)
-                )
-                self.loop.call_soon_threadsafe(
-                    lambda: asyncio.create_task(self.handle_ai_reply(text))
-                )
+                # # ✅ SAVE USER MESSAGE
+                # asyncio.create_task(
+                #     save_message(self.conversation, "user", text)
+                # )
+                if not self.processing_final:
+                    self.loop.call_soon_threadsafe(
+                        lambda: asyncio.create_task(self.handle_ai_reply(text))
+                    )
 
 
         self.recognizer.recognizing.connect(handle_recognizing)
@@ -247,19 +308,41 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
         }))
 
     async def receive(self, text_data=None, bytes_data=None):
-        print("📥 RECEIVE CALLED")
+        # print("📥 RECEIVE CALLED")
 
 
         if text_data:
             try:
                 data = json.loads(text_data)
 
+                # ✅ HANDLE START EVENT (VERY IMPORTANT)
+                if data.get("event") == "start":
+                    try:
+                        self.user_number = data["start"]["customParameters"]["callerNumber"]
+                        print("📞 CALLER NUMBER:", self.user_number)
+
+                        await update_user_number(self.conversation, self.user_number)
+
+                    except Exception as e:
+                        print("❌ Failed to extract caller number:", e)
+
+                # print("FULL WS DATA:", data)  # DEBUG (keep for now)
+
+                # ✅ Capture user number dynamically
+                if data.get("from"):
+                    self.user_number = data["from"]
+                    await update_user_number(self.conversation, self.user_number)
+
+                elif data.get("caller_id"):
+                    self.user_number = data["caller_id"]
+                    await update_user_number(self.conversation, self.user_number)
+
                 if data.get("event") == "media":
                     payload = data["media"]["payload"]
 
                     ulaw_chunk = base64.b64decode(payload)
 
-                    print("🔥 Received base64 audio:", len(ulaw_chunk))
+                    # print("🔥 Received base64 audio:", len(ulaw_chunk))
                     rms=0
 
                     # decode µ-law → PCM
@@ -280,14 +363,42 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
 
                     pcm_audio = self.jitter_buffer.pop(0)
                     rms = audioop.rms(pcm_audio, 2)
-                    print("🔍 RMS:", rms)
+                    # print("🔍 RMS:", rms)
+
+
+                    # 🔥 DYNAMIC SPEECH END DETECTION (MAIN FIX)
+
+                    if rms > 200:
+                        # ✅ user is speaking
+                        self.speech_active = True
+                        self.silence_start_time = None
+
+                    else:
+                        # ✅ silence detected
+                        if self.speech_active:
+                            if self.silence_start_time is None:
+                                self.silence_start_time = time.time()
+
+                            elif time.time() - self.silence_start_time > 0.5:
+                                print("⚡ DYNAMIC FINAL TRIGGER")
+
+                                self.speech_active = False
+
+                                if self.partial_text and not self.processing_final:
+                                    self.processing_final = True
+
+                                    try:
+                                        await self.handle_ai_reply(self.partial_text)
+                                    finally:
+                                        self.partial_text = ""
+                                        self.processing_final = False
 
 
                     if rms > 10000:
                         print("⚠️ droping corrupted audio")
                         return
 
-                    if rms > 50:
+                    if rms > 100:
 
                         self.push_stream.write(pcm_audio)
 
@@ -295,21 +406,24 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
                     if rms >= 80:
                         self.last_speech_time = time.time()
 
-                    # ✅ INTERRUPT LOGIC
                     if self.is_bot_speaking:
 
-                        if rms < 100:
+                        # ✅ Ignore silence / noise completely
+                        if rms < 800:   # 🔥 STRONG threshold
                             self.interrupt_start_time = None
                             return
 
+                        # ✅ Start tracking only if strong signal
                         if self.interrupt_start_time is None:
                             self.interrupt_start_time = time.time()
                             return
 
-                        if time.time() - self.interrupt_start_time < 0.3:
+                        # ✅ Require sustained speech (human speaking)
+                        if time.time() - self.interrupt_start_time < 1.0:
                             return
 
-                        if time.time() - self.bot_start_time < 0.5:
+                        # ✅ Do NOT interrupt immediately after bot starts
+                        if time.time() - self.bot_start_time < 1.5:
                             return
 
                         print("🛑 USER INTERRUPTED BOT")
@@ -318,7 +432,7 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
 
                         if self.tts_task and not self.tts_task.done():
                             self.tts_task.cancel()
-                        
+
                         self.jitter_buffer.clear()
                         self.last_speech_time = time.time() - 2
 
@@ -328,21 +442,21 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
                     # ✅ 🔥 PUT YOUR FORCE FINAL HERE (END ONLY)
                     # =========================================
 
-                    if (
-                        self.partial_text
-                        and len(self.partial_text) > 2
-                        and not self.processing_final
-                        and time.time() - self.last_speech_time > 0.3
-                    ):
-                        print("⚡ FORCE FINAL TRIGGER")
+                    # if (
+                    #     self.partial_text
+                    #     and len(self.partial_text) > 2
+                    #     and not self.processing_final
+                    #     and time.time() - self.last_speech_time > 0.3
+                    # ):
+                    #     print("⚡ FORCE FINAL TRIGGER")
 
-                        self.processing_final = True
+                    #     self.processing_final = True
 
-                        try:
-                            await self.handle_ai_reply(self.partial_text)
-                        finally:
-                            self.partial_text = ""
-                            self.processing_final = False
+                    #     try:
+                    #         await self.handle_ai_reply(self.partial_text)
+                    #     finally:
+                    #         self.partial_text = ""
+                    #         self.processing_final = False
 
 
             except Exception as e:
@@ -350,12 +464,47 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
 
 
     async def handle_ai_reply(self, text):
+        if not text.strip():
+            return
+        
+        import re
+        text = re.sub(
+            r'^(hi|hello|hey|how are you|good morning|good evening)[\s,?]*',
+            '',
+            text.lower()
+        ).strip()
+        
+        # ❌ ignore very small inputs
+        if len(text.split()) < 3 and text.lower() not in ["hi", "hello", "hey"]:
+            return
 
-        print("🚀 Sending to LLM:", text)
+        # ✅ ADD THIS BLOCK HERE (TOP of function)
+        if hasattr(self, "last_final_text") and self.last_final_text == text:
+            return
+        
+        self.last_final_text = text
+
+        # 🔥 DELTA LOGIC (MOST IMPORTANT)
+        if not hasattr(self, "last_processed_text"):
+            self.last_processed_text = ""
+
+        if text.startswith(self.last_processed_text):
+            new_text = text[len(self.last_processed_text):].strip()
+        else:
+            new_text = text
+        if not new_text:
+            return
+        
+        self.last_processed_text = text
+
+        print("🧠 FINAL CLEAN TEXT:", new_text)
+
+        # print("🚀 Sending to LLM:", text)
+        await save_message(self.conversation, "user", new_text)
 
         reply, _ = await sync_to_async(process_message)(
             self.agent_id,
-            text,
+            new_text,
             self.session_id
         )
         # ✅ SAVE BOT MESSAGE
@@ -370,10 +519,7 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
         async def speak_sentences():
             for sentence in sentences:
 
-                if not self.is_connected:
-                    break
-
-                if not self.is_bot_speaking:
+                if not self.is_connected or not self.is_bot_speaking:
                     break
 
                 await self.send_tts(sentence)
@@ -488,7 +634,7 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
                     with open("debug_sent_ulaw.raw", "ab") as f:
                         f.write(chunk)
 
-                    print("Sending chunk:", i)
+                    # print("Sending chunk:", i)
 
                     message = {
                         "event": "media",
@@ -520,29 +666,31 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
             
         
 
-    async def finalize_if_silent(self):
-            await asyncio.sleep(0.2)
+    # async def finalize_if_silent(self):
+    #         await asyncio.sleep(0.2)
 
-            if self.processing_final:
-                return
+    #         if self.processing_final:
+    #             return
 
-            if time.time() - self.last_speech_time >= 0.5:
-                final_text = self.clean_text(self.partial_text)
+    #         if time.time() - self.last_speech_time >= 0.5:
+    #             final_text = self.clean_text(self.partial_text)
 
-                if final_text:
-                    self.processing_final = True
+    #             if final_text:
+    #                 self.processing_final = True
 
-                    try:
-                        print("🧠 FINAL USER TEXT:", final_text)
+    #                 try:
+    #                     print("🧠 FINAL USER TEXT:", final_text)
 
-                        self.is_user_speaking = False
+    #                     self.is_user_speaking = False
 
-                        await self.handle_ai_reply(final_text)
+    #                     # await save_message(self.conversation, "user", final_text)
 
-                    finally:
-                        # 🔥 ALWAYS RESET
-                        self.partial_text = ""
-                        self.processing_final = False
+    #                     await self.handle_ai_reply(final_text)
+
+    #                 finally:
+    #                     # 🔥 ALWAYS RESET
+    #                     self.partial_text = ""
+    #                     self.processing_final = False
 
         # ✅ ADD HERE (same indentation level)
     def clean_text(self, text):
@@ -582,4 +730,11 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
         # ✅ ADD HERE (LAST LINE)
         if hasattr(self, "conversation"):
             await close_conversation(self.conversation)
+
+        # 🔥 EXTRA SAFETY RESET (PUT HERE)
+        if hasattr(self, "last_processed_text"):
+            self.last_processed_text = ""
+
+        if hasattr(self, "last_final_text"):
+            self.last_final_text = ""
 

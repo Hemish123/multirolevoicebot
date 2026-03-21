@@ -280,6 +280,8 @@ from agents.models import VoiceAgent
 from assistant.management.commands.stt import speech_to_text
 from conversations.services.core.dialogue_engine import process_message
 from assistant.management.commands.tts import synthesize_to_base64
+from .models import Conversation, Message
+from .serializers import ConversationSerializer, MessageSerializer
 
 
 # ======================================================
@@ -445,7 +447,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 import tempfile
-
+from rest_framework.decorators import api_view
 from agents.models import VoiceAgent
 from conversations.services.core.dialogue_engine import process_message
 
@@ -534,3 +536,32 @@ class DemoChatAPIView(APIView):
             "audio": synthesize_to_base64(clean_reply),
             "session_id": session_id
         })
+    
+
+# ✅ 1. Get all conversations (for dashboard)
+@api_view(["GET"])
+def get_conversations(request):
+    conversations = Conversation.objects.all().order_by("-started_at")
+    serializer = ConversationSerializer(conversations, many=True)
+    return Response({
+        "count": conversations.count(),   # ✅ NEW FIELD
+        "data": serializer.data           # ✅ existing data
+    })
+
+
+# ✅ 2. Get full conversation (messages)
+@api_view(["GET"])
+def get_conversation_messages(request, session_id):
+    try:
+        conversation = Conversation.objects.get(session_id=session_id)
+    except Conversation.DoesNotExist:
+        return Response({"error": "Conversation not found"}, status=404)
+
+    messages = Message.objects.filter(conversation=conversation).order_by("created_at")
+    serializer = MessageSerializer(messages, many=True)
+
+    return Response({
+        "session_id": conversation.session_id,
+        "user_number": conversation.user_number,
+        "messages": serializer.data
+    })

@@ -838,6 +838,9 @@ Do not hallucinate.
     reply = normalize_course_names(reply)
     return reply
  
+ 
+
+
 
 
 def transaction_strategy(agent, message, session):
@@ -1434,48 +1437,78 @@ def site_visit_transaction_strategy(agent, message, session):
 
 def loan_financial_strategy(agent, message, session):
 
-    import re
-
     msg = message.lower()
 
-    # 🔹 Lightweight numeric extraction (NO LLM)
-    numbers = re.findall(r"\d+\.?\d*", msg)
-    numbers = [float(n) for n in numbers]
+    # 🔹 Step 1 — Extract structured data safely
+    extraction_prompt = f"""
+Extract financial details from this message.
 
-    income = numbers[0] if len(numbers) > 0 else 0
-    loan_amount = numbers[1] if len(numbers) > 1 else 0
+Return JSON only:
+{{
+  "monthly_income": number or null,
+  "existing_emi": number or null,
+  "loan_amount_requested": number or null,
+  "tenure_years": number or null,
+  "interest_rate": number or null
+}}
 
-    tenure_years = 20
-    interest_rate = 8.5
+Message: "{message}"
+"""
 
-    # 🔹 Eligibility Mode
-    if income > 0 and "income" in msg:
+    raw = generate_response(extraction_prompt, message)
 
-        eligible_emi = income * 0.5
+    import json
+    try:
+        data = json.loads(raw)
+    except:
+        data = {}
+
+    if not isinstance(data, dict):
+        data = {}
+
+    # 🔹 Safe numeric initialization
+    income = float(data.get("monthly_income") or 0)
+    existing_emi = float(data.get("existing_emi") or 0)
+    loan_amount = float(data.get("loan_amount_requested") or 0)
+    tenure_years = float(data.get("tenure_years") or 20)
+    interest_rate = float(data.get("interest_rate") or 8.5)
+
+    # 🔹 2️⃣ Eligibility Estimation Mode
+    if income > 0:
+
+        eligible_emi = (income * 0.5) - existing_emi
+
         monthly_rate = (interest_rate / 100) / 12
         tenure_months = tenure_years * 12
 
-        estimated_loan = (
-            eligible_emi *
-            ((1 + monthly_rate) ** tenure_months - 1) /
-            (monthly_rate * (1 + monthly_rate) ** tenure_months)
-        )
+        if monthly_rate > 0:
+            estimated_loan = (
+                eligible_emi *
+                ((1 + monthly_rate) ** tenure_months - 1) /
+                (monthly_rate * (1 + monthly_rate) ** tenure_months)
+            )
+        else:
+            estimated_loan = eligible_emi * tenure_months
 
         estimated_loan_lakh = round(estimated_loan / 100000, 1)
 
-        system_prompt = f"""
+        explanation_prompt = f"""
 You are a professional home loan advisor.
 
-Estimated Loan Eligibility: {estimated_loan_lakh} lakh
+Monthly Income: ₹{income}
+Existing EMI: ₹{existing_emi}
+Estimated Loan Eligibility: ₹{estimated_loan_lakh} lakh
 
-Keep answer under 4 sentences.
-Professional tone.
-Mention final approval depends on bank evaluation.
+Rules:
+- Keep answer under 4 sentences.
+- No bullet points.
+- Professional and human tone.
+- Mention final approval depends on bank evaluation.
 """
 
-        return generate_response(system_prompt, message)
+        return generate_response(explanation_prompt, message)
 
-    # 🔹 EMI Mode
+    # 🔹 3️⃣ EMI Calculation Mode
     if loan_amount > 0:
 
         monthly_rate = (interest_rate / 100) / 12
@@ -1489,16 +1522,22 @@ Mention final approval depends on bank evaluation.
 
         emi_value = round(emi)
 
-        system_prompt = f"""
+        explanation_prompt = f"""
 You are a professional home loan advisor.
 
-Calculated EMI: {emi_value}
+Loan Amount: ₹{loan_amount}
+Interest Rate: {interest_rate}%
+Tenure: {tenure_years} years
+Calculated EMI: ₹{emi_value}
 
-Keep response short and professional.
+Rules:
+- Keep response short (max 4 sentences).
+- Explain clearly and professionally.
 """
 
-        return generate_response(system_prompt, message)
+        return generate_response(explanation_prompt, message)
 
+    # 🔹 4️⃣ Otherwise → Knowledge Mode
     return information_strategy(agent, message, session)
 
 
@@ -1809,6 +1848,7 @@ Instructions:
 """
 
     return generate_response(system_prompt, message)
+
 
 
 
@@ -3199,13 +3239,6 @@ Instructions:
 
 def insurance_transaction_strategy(agent, message, session):
 
-    from conversations.services.core.strategies import information_strategy
-
-    state = session.state or {}
-    msg = message.lower().strip()
-
-    # def humanize(agent, user_message, instruction, stage=None):
-
     def clean_for_voice(text):
         text = re.sub(r"\b\d+\.\s*", "", text)  # remove 1. 2. 3.
 
@@ -3214,9 +3247,11 @@ def insurance_transaction_strategy(agent, message, session):
 
         # Convert "5 L" → "5 lakh"
         text = re.sub(r"(\d+)\s*L\b", r"\1 lakh", text)
+        # Convert "2-3 Cr" → "2 to 3 crore"
+        text = re.sub(r"(\d+)\s*-\s*(\d+)\s*Cr\b", r"\1 to \2 crore", text)
 
-        # Convert "5 L" → "5 lakh"
-        text = re.sub(r"(\d+)\s*L\b", r"\1 lakh", text)
+        # Convert "5 Cr" → "5 crore"
+        text = re.sub(r"(\d+)\s*Cr\b", r"\1 crore", text)
 
         text = text.replace("\n", ". ")         # better voice pause
         return text.strip()
@@ -3614,7 +3649,7 @@ def insurance_transaction_strategy(agent, message, session):
         session.save()
 
         response = humanize(agent, message,
-            "Ask for car registration number OR brand, model, fuel, year."
+            "Ask for car registration number OR brand, year."
         )
         return clean_for_voice(response)
 
@@ -3652,10 +3687,7 @@ def insurance_transaction_strategy(agent, message, session):
         response = humanize(agent, message,
             "Ask which add-ons user wants."
             " Zero Depreciation,\n"
-            " Engine Protection,\n"
-            " Roadside Assistance,\n"
-            " Return to Invoice,\n"
-            " NCB Protection"
+            " Engine Protection."
         )
         return clean_for_voice(response)
 
@@ -3812,22 +3844,26 @@ def insurance_transaction_strategy(agent, message, session):
     # LEAD CAPTURE
     # =====================================================
 
+    # =====================================================
+    # LEAD CAPTURE (UPDATED)
+    # =====================================================
+
     if session.stage == "insurance_lead_capture":
 
+        # ✅ STEP 1 — NAME
         if not state.get("name"):
             state["name"] = message.strip()
             session.state = state
             session.save()
-            response = humanize(agent, message, "Ask for phone number.")
-            return clean_for_voice(response)
 
-        elif not state.get("phone"):
-            state["phone"] = message.strip()
-            session.state = state
-            session.save()
-            response = humanize(agent, message, "Ask for email address.")
-            return clean_for_voice(response)
+            return(
+                "Can you please provide your email address?"
+            )
 
+            # response = humanize(agent, message, "Ask for email address.")
+            # return clean_for_voice(response)
+
+        # ✅ STEP 2 — EMAIL (NO PHONE)
         elif not state.get("email"):
             state["email"] = message.strip()
             session.stage = "completed"
@@ -3835,9 +3871,7 @@ def insurance_transaction_strategy(agent, message, session):
             session.save()
 
             return (
-                " Thank you for choosing us!\n\n"
-                "We’re preparing the best insurance plan for you.\n"
-                "Our expert will connect with you shortly."
+                "Thank you for sharing your details Our advisor will connect with you shortly."
             )
 
      # =====================================================
@@ -3845,11 +3879,7 @@ def insurance_transaction_strategy(agent, message, session):
     # =====================================================
 
     if session.stage == "completed":
-        return "thank you. Our advisor will contact you shortly."
-
-
-
-
+        return "thank you Our advisor will contact you shortly."
 
 
 
