@@ -322,7 +322,7 @@ def process_message(agent, message, session_id=None):
             return uni_guard, session_id
 
 
-    print("AGENT SUMMARY FROM DB:", agent.summary)
+    # print("AGENT SUMMARY FROM DB:", agent.summary)
     if intent == "greeting" and not session.state.get("intro_shown"):
 
         role_name = agent.role_template.role_name if agent.role_template else "assistant"
@@ -334,7 +334,6 @@ def process_message(agent, message, session_id=None):
 
     {summary}
 
-    How can I assist you today?
     """
 
         # mark intro shown so it never repeats
@@ -351,7 +350,6 @@ def process_message(agent, message, session_id=None):
         reply = (
             f"I'm doing well, thank you for asking!\n\n"
             f"I'm here to help you with {agent.company_name or agent.name} services. "
-            f"How can I assist you today?"
         )
         print("⏱ Total Message Time:", time.time() - start_time)
         return reply, session_id

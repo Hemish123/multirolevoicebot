@@ -156,11 +156,8 @@ class VoiceBotConsumer(AsyncWebsocketConsumer):
 
 
         self.recognizer, self.push_stream = create_speech_recognizer()
-        # import time
-
-        # self.session_id = str(time.time())
-
         import uuid
+
         self.session_id = str(uuid.uuid4())
 
         self.conversation = await create_conversation(
