@@ -41,7 +41,8 @@ ALLOWED_HOSTS = ["*","multivoicebot-d3eyanb4h2g4crhh.centralindia-01.azurewebsit
 
 
 CSRF_TRUSTED_ORIGINS = [
-    "https://multivoicebot-d3eyanb4h2g4crhh.centralindia-01.azurewebsites.net"
+    "https://multivoicebot-d3eyanb4h2g4crhh.centralindia-01.azurewebsites.net",
+    "https://renav-ch.on-forge.com",
 ]
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
@@ -56,6 +57,7 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "https://multivoicebot-d3eyanb4h2g4crhh.centralindia-01.azurewebsites.net",
+    "https://renav-ch.on-forge.com",
 ]
 # Application definition
 
