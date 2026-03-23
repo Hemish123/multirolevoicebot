@@ -3268,6 +3268,865 @@ YES or NO
 
     return result == "YES"
 
+# def insurance_transaction_strategy(agent, message, session):
+
+#     def clean_for_voice(text):
+#         text = re.sub(r"\b\d+\.\s*", "", text)  # remove 1. 2. 3.
+
+#         # Convert "3-5 L" → "3 to 5 lakh"
+#         text = re.sub(r"(\d+)\s*-\s*(\d+)\s*L\b", r"\1 to \2 lakh", text)
+
+#         # Convert "5 L" → "5 lakh"
+#         text = re.sub(r"(\d+)\s*L\b", r"\1 lakh", text)
+
+#         # Convert "2-3 Cr" → "2 to 3 crore"
+#         text = re.sub(r"(\d+)\s*-\s*(\d+)\s*Cr\b", r"\1 to \2 crore", text)
+
+#         # Convert "5 Cr" → "5 crore"
+#         text = re.sub(r"(\d+)\s*Cr\b", r"\1 crore", text)
+
+#         text = text.replace("\n", ". ")         # better voice pause
+#         return text.strip()
+
+#     from conversations.services.core.strategies import information_strategy
+
+#     state = session.state or {}
+#     msg = message.lower().strip()
+
+#     # =====================================================
+#     # 🧠 CORE CONTROL LAYER (VERY IMPORTANT)
+#     # =====================================================
+
+#     in_flow = session.stage is not None
+
+#     question_keywords = [
+#         "what", "which", "how", "why",
+#         "best", "better", "compare",
+#         "difference", "should", "guide"
+#     ]
+
+#     info_request_words = [
+#         "know", "about", "information", "details",
+#         "explain", "tell me", "learn", "guide",
+#         "understand", "meaning", "what is",
+#         "how does", "overview"
+#     ]
+
+#     confusion_keywords = [
+#         "don't know", "dont know", "not sure",
+#         "explain", "what is this", "what is that",
+#         "help me understand", "meaning"
+#     ]
+#     is_question = (
+#         "?" in message
+#         or any(word in msg for word in question_keywords)
+#     )
+#     is_info_request = any(word in msg for word in info_request_words)
+
+#     is_confused = any(word in msg for word in confusion_keywords)
+
+#     is_knowledge_intent = is_question or is_info_request or is_confused
+
+#     # Skip domain check for small inputs (flow answers)
+#     if len(msg.split()) <= 2:
+#         insurance_related = False
+#     else:
+#         insurance_related = is_insurance_related(agent, message)
+
+#     # =====================================================
+#     # 🔒 FLOW MODE (HIGHEST PRIORITY)
+#     # =====================================================
+
+#     if in_flow:
+
+#         # ✅ If insurance question → LLM interrupt
+#         # if insurance_related and is_question and len(msg.split()) > 3:
+#         if insurance_related and is_knowledge_intent:
+
+#             from knowledge.services.retriever import retrieve_relevant_chunks
+#             from conversations.services.azure_openai_service import generate_response
+
+#             context = retrieve_relevant_chunks(agent, message)
+
+#             llm_prompt = f"""
+#     {agent.resolved_prompt}
+
+#     You are an Insurance Advisor.
+
+#     User Question:
+#     {message}
+
+#     Answer in 2–3 lines clearly.
+#     """
+
+#             answer = generate_response(llm_prompt, message)
+
+#             return clean_for_voice(
+#                 answer + "\n\nShall we continue where we left off?"
+#             )
+
+#         # ❗ Otherwise → DO NOTHING → continue flow
+
+
+#     # =====================================================
+#     # 🌐 OUTSIDE FLOW
+#     # =====================================================
+
+#     if not in_flow:
+
+#         # ✅ Insurance question → LLM
+#         # if insurance_related and is_question:
+#         if insurance_related and is_knowledge_intent:
+
+#             from knowledge.services.retriever import retrieve_relevant_chunks
+#             from conversations.services.azure_openai_service import generate_response
+
+#             context = retrieve_relevant_chunks(agent, message)
+
+#             llm_prompt = f"""
+#     {agent.resolved_prompt}
+
+#     You are an Insurance Advisor.
+
+#     User Question:
+#     {message}
+
+#     Answer clearly in 2–3 lines.
+#     """
+
+#             answer = generate_response(llm_prompt, message)
+
+#             return clean_for_voice(answer)
+
+#         # ❗ Non-insurance → DO NOTHING (let system continue)
+#         if not insurance_related:
+#             return clean_for_voice(
+#                 "I can help you with insurance-related queries like policies, coverage, and claims."
+#             )
+#     # =====================================================
+#     # 🚫 STRICT DOMAIN CONTROL (TOP PRIORITY)
+#     # =====================================================
+
+#     def humanize(agent, user_message, instruction, stage=None):
+
+#         from conversations.services.azure_openai_service import generate_response
+
+#         context = ""
+
+#         system_prompt = f"""
+#     {agent.resolved_prompt}
+
+#     You are an Insurance Advisor at {agent.company_name}.
+
+#     Current Conversation Stage: {stage}
+
+#     Knowledge Context:
+#     {context}
+
+#     Instruction:
+#     {instruction}
+
+#     STRICT RULES:
+#     - ONLY respond to the CURRENT STAGE
+#     - DO NOT restart conversation
+#     - DO NOT suggest other insurance types
+#     - DO NOT ask unrelated questions
+#     - DO NOT go back to menu
+#     - DO NOT assume new intent
+#     - Stay within the current step
+#     - DO NOT use numbered lists (1, 2, 3)
+#     - Use simple sentences or comma-separated options
+#     - Keep it natural for voice conversation
+    
+
+#     DO NOT:
+#     - change flow
+#     - ask new questions
+#     - suggest other insurance
+#     - interpret user intent
+
+#     Response Style:
+#     - Short and natural
+#     - Show options clearly if needed
+#     """
+
+#         return generate_response(system_prompt, user_message)
+
+#     # =====================================================
+#     # 🔹 INSURANCE INFORMATION REQUEST DETECTION (NEW)
+#     # =====================================================
+
+#     # info_request_words = [
+#     #     "know", "about", "information", "details",
+#     #     "explain", "tell me", "learn", "guide",
+#     #     "understand", "meaning", "what is",
+#     #     "how does", "overview"
+#     # ]
+
+#     flow_request_words = [
+#         "want", "need", "buy", "get", "apply",
+#         "purchase", "take", "start"
+#     ]
+
+#     insurance_keywords = [
+#         "insurance",   # ✅ THIS LINE FIXES EVERYTHING
+#         "health", "car", "vehicle", "term", "life",
+#         "property", "home", "travel", "bike",
+#         "business", "fire", "marine"
+#     ]
+
+#     # If user asking for insurance knowledge (not buying)
+#     if any(word in msg for word in info_request_words) and any(ins in msg for ins in insurance_keywords):
+
+#         return information_strategy(agent, message, session)
+
+
+#     # =====================================================
+#     # 🔹 DOCUMENT KNOWLEDGE MODE (NEW ADDITION)
+#     # =====================================================
+
+#     document_intent_keywords = [
+#         "what information",
+#         "which information",
+#         "kind of information",
+#         "what kind of information",
+#         "which information do you have",
+#         "which kind of information",
+#         "what do you know",
+#         "what do you have",
+#         "what services",
+#         "what policies",
+#         "summarize",
+#         "summarize the document",
+#         "give me summary",
+#         "summary",
+#         "explain",
+#         "details",
+#         "tell me about",
+#         "about the policy",
+#         "policy information"
+#     ]
+
+#     if any(keyword in msg for keyword in document_intent_keywords):
+
+#         # If user asked while inside flow
+#         if session.stage and session.stage != "insurance_menu":
+#             answer = information_strategy(agent, message, session)
+#             return f"{answer}\n\nWould you like to continue where we left off?"
+        
+#         return information_strategy(agent, message, session)
+
+#     # =====================================================
+#     # HANDLE CONFIRM SWITCH FIRST
+#     # =====================================================
+
+#     if session.stage == "confirm_switch":
+
+#         switch_to = state.get("switch_to")
+#         previous_stage = state.get("previous_stage")
+
+#         if "yes" in msg or msg == "y":
+#             session.state = {"product": switch_to}
+#             session.stage = None
+#             session.save()
+#             return insurance_transaction_strategy(agent, switch_to, session)
+
+#         elif "no" in msg or msg == "n":
+#             session.stage = previous_stage
+#             session.save()
+#             response = humanize(agent, message, "Tell user we will continue with current insurance selection.")
+#             return clean_for_voice(response)
+
+#         else:
+#             response = humanize(agent, message, "Ask user to reply with Yes or No.")
+#             return clean_for_voice(response)
+        
+
+#     # # =====================================================
+#     # # 🔥 OPEN LLM FALLBACK (SAFE MODE)
+#     # # =====================================================
+
+#     # from knowledge.services.retriever import retrieve_relevant_chunks
+#     # from conversations.services.azure_openai_service import generate_response
+
+#     # knowledge_context = retrieve_relevant_chunks(agent, message)
+
+#     # # 🔥 ADD HERE
+#     # insurance_related = [
+#     #     "insurance", "policy", "claim", "premium",
+#     #     "coverage", "benefit", "waiting", "term",
+#     #     "health", "car", "life", "hospital"
+#     # ]
+
+#     # # ✅ FINAL CONDITION
+#     # if any(word in msg for word in insurance_related) and len(msg.split()) > 3:
+
+#     #     llm_prompt = f"""
+#     # {agent.resolved_prompt}
+
+#     # You are an Insurance Advisor at {agent.company_name}.
+
+#     # Knowledge:
+#     # {knowledge_context}
+
+#     # User Question:
+#     # {message}
+
+#     # Rules:
+#     # - Answer ONLY if relevant to insurance
+#     # - Keep it short (2-3 lines)
+#     # - Do NOT change conversation flow
+#     # - Do NOT ask new questions
+#     # - Do NOT show menu
+#     # - Do NOT restart flow
+#     # """
+
+#     #     llm_response = generate_response(llm_prompt, message)
+
+#     #     # 👉 IF USER IS IN FLOW → APPEND NEXT STEP
+#     #     if session.stage:
+#     #         return clean_for_voice(
+#     #             llm_response + "\n\nLet's continue."
+#     #         )
+
+#     #     return clean_for_voice(llm_response)
+
+#     # =====================================================
+#     # 🧠 PRIORITY: KNOWLEDGE INTENT (BEFORE FLOW)
+#     # =====================================================
+
+#     if not in_flow and insurance_related and is_knowledge_intent:
+
+#         from knowledge.services.retriever import retrieve_relevant_chunks
+#         from conversations.services.azure_openai_service import generate_response
+
+#         context = retrieve_relevant_chunks(agent, message)
+
+#         llm_prompt = f"""
+#     {agent.resolved_prompt}
+
+#     You are an Insurance Advisor.
+
+#     User Question:
+#     {message}
+
+#     Answer clearly in 2–3 lines.
+#     """
+
+#         answer = generate_response(llm_prompt, message)
+
+#         return clean_for_voice(answer)
+
+#     # =====================================================
+#     # DETECT PRODUCT FROM MESSAGE
+#     # =====================================================
+
+#     detected_product = None
+
+#     if any(word in msg for word in ["car", "vehicle", "renew", "new car"]):
+#         detected_product = "car"
+
+#     elif any(word in msg for word in ["health", "medical", "hospital"]):
+#         detected_product = "health"
+
+#     elif any(word in msg for word in ["term", "life insurance", "life cover"]):
+#         detected_product = "term"
+
+#     current_product = state.get("product")
+
+#     # 🚨 HARD FLOW LOCK (PREVENT RESET)
+#     if current_product and session.stage:
+#         detected_product = current_product
+
+#     # Mid-flow switch detection
+#     if detected_product and current_product and detected_product != current_product:
+#         state["switch_to"] = detected_product
+#         state["previous_stage"] = session.stage
+#         session.state = state
+#         session.stage = "confirm_switch"
+#         session.save()
+
+#         return (
+#             f"You're currently in {current_product.capitalize()} Insurance flow.\n\n"
+#             f"Would you like to switch to {detected_product.capitalize()} Insurance? (Yes/No)"
+#         )
+    
+#     # HARD LOCK (ONLY WHEN FLOW STARTED)
+#     if current_product and session.stage:
+#         detected_product = current_product
+
+#     # =====================================================
+#     # HANDLE GREETING → DIRECT PRODUCT (FIX LOOP)
+#     # =====================================================
+
+#     if not state.get("product") and detected_product:
+#         session.stage = None  # reset cleanly before starting flow
+
+#     # =====================================================
+#     # SMART INITIAL ENTRY
+#     # =====================================================
+
+#     if not state.get("product") :
+
+#         # 🚨 HARD FLOW LOCK (PREVENT RESET)
+#         if current_product and session.stage:
+#             detected_product = current_product
+
+#         if detected_product == "car":
+#             session.stage = "car_requirement"
+#             session.state = {"product": "car"}
+#             session.save()
+
+#             response = humanize(agent, message,
+#                 "Ask what user needs: New Car Insurance, Renewal, or Claim Assistance."
+#             )
+#             return clean_for_voice(response)
+        
+#         elif detected_product == "health":
+
+#             # Smart member detection from first message
+#             member_type = None
+
+#             if "family" in msg:
+#                 member_type = "Family"
+#             elif "parents" in msg:
+#                 member_type = "Parents"
+#             elif "spouse" in msg:
+#                 member_type = "Self + Spouse"
+#             elif "self" in msg:
+#                 member_type = "Self"
+
+#             session.state = {"product": "health"}
+
+#             # If member type already mentioned → skip asking again
+#             if member_type:
+#                 session.state["member_type"] = member_type
+#                 session.stage = "health_age"
+#                 session.save()
+
+#                 response = humanize(agent, message,
+#                     "Ask age group of eldest member: 18-25, 26-35, 36-45, 46-55, 56-65, 65+."
+#                 )
+#                 return clean_for_voice(response)
+
+#             # Otherwise ask normally
+#             session.stage = "health_member_type"
+#             session.save()
+
+#             response = humanize(agent, message,
+#                 "Ask which type of insurance you need: Self, Spouse, Family, Parents, Complete Family."
+#             )
+#             return clean_for_voice(response)
+
+#         elif detected_product == "term":
+#             session.stage = "term_cover_for"
+#             session.state = {"product": "term"}
+#             session.save()
+
+#             response = humanize(agent, message,
+#                 "Ask who the policy is for: Self or Spouse."
+#             )
+#             return clean_for_voice(response)
+
+#         # If nothing detected → show menu
+#         if not state.get("product"):
+#             session.stage = "insurance_menu"
+#             session.save()
+
+#             response = humanize(agent, message,
+#                 "Welcome user and show options: Health Insurance, Car Insurance, Term Life Insurance."
+#             )
+#             return clean_for_voice(response)
+
+#     # =====================================================
+#     # MASTER MENU
+#     # =====================================================
+
+#     if session.stage == "insurance_menu" and not state.get("product"):
+
+#         if msg in ["1", "health", "health insurance"]:
+#             session.stage = "health_member_type"
+#             session.state = {"product": "health"}
+#             session.save()
+
+#             response = humanize(agent, message,
+#                 "Ask  which type of insurance you need: Self, Self + Spouse, Family, Parents, Complete Family."
+#             )
+#             return clean_for_voice(response)
+
+#         elif msg in ["2", "car", "car insurance"]:
+#             session.stage = "car_requirement"
+#             session.state = {"product": "car"}
+#             session.save()
+
+#             response = humanize(agent, message,
+#                 "Ask what the user needs: New Car Insurance, Renew Existing Policy, or Claim Assistance."
+#             )
+#             return clean_for_voice(response)
+
+#         elif msg in ["3", "term", "life", "term life insurance"]:
+#             session.stage = "term_cover_for"
+#             session.state = {"product": "term"}
+#             session.save()
+
+#             response = humanize(agent, message,
+#                 "Ask who the policy is for: Self or Spouse."
+#             )
+#             return clean_for_voice(response)
+
+#         elif msg in ["4", "advisor", "talk"]:
+#             session.stage = "insurance_lead_capture"
+#             session.state = {"product": "advisor"}
+#             session.save()
+
+#             response = humanize(agent, message,
+#                 "Ask the user to share their name to connect with an advisor."
+#             )
+#             return clean_for_voice(response)
+
+#         else:
+#             response = humanize(agent, message,
+#                 "Ask the user to select a valid option from the menu."
+#             )
+#             return clean_for_voice(response)
+
+#     # =====================================================
+#     # HEALTH FLOW
+#     # =====================================================
+
+#     if session.stage == "health_member_type":
+#         state["member_type"] = message
+#         session.stage = "health_age"
+#         session.state = state
+#         session.save()
+
+#         response = humanize(agent, message,
+#             "Ask age group of eldest member. 18-25, 26-35, 36-45, 46-55, 56-65, Above 65 ",
+#         )
+#         return clean_for_voice(response)
+
+#     if session.stage == "health_age":
+#         state["age_band"] = message
+#         session.stage = "health_cover"
+#         session.state = state
+#         session.save()
+
+#         response = humanize(agent, message,
+#             "Ask preferred sum insured: 3-5L, 5-10L, 10-25L, 25L+.",
+#             session.stage
+#         )
+#         return clean_for_voice(response)
+
+#     if session.stage == "health_cover":
+#         state["coverage"] = message
+#         session.stage = "insurance_lead_capture"
+#         session.state = state
+#         session.save()
+
+#         response = humanize(agent, message,
+#             "Ask user to share their name."
+#         )
+#         return clean_for_voice(response)
+    
+#     # =====================================================
+#     # 🚗 CAR FLOW (NEW LOGIC ADDED)
+#     # =====================================================
+
+#     if session.stage == "car_requirement":
+
+#         state["requirement"] = message.strip()
+#         session.stage = "car_vehicle_details"
+#         session.state = state
+#         session.save()
+
+#         response = humanize(agent, message,
+#             "Ask for car registration number OR brand, fuel, year."
+#         )
+#         return clean_for_voice(response)
+
+#     if session.stage == "car_vehicle_details":
+
+#         state["vehicle_details"] = message.strip()
+#         session.stage = "car_policy_status"
+#         session.state = state
+#         session.save()
+
+#         response = humanize(agent, message,
+#             "Ask current policy status."
+#         )
+#         return clean_for_voice(response)
+
+#     if session.stage == "car_policy_status":
+
+#         state["policy_status"] = message.strip()
+#         session.stage = "car_plan_type"
+#         session.state = state
+#         session.save()
+
+#         response = humanize(agent, message,
+#             "Ask insurance type: Third Party or Comprehensive."
+#         )
+#         return clean_for_voice(response)
+
+#     if session.stage == "car_plan_type":
+
+#         state["plan_type"] = message.strip()
+#         session.stage = "car_addons"
+#         session.state = state
+#         session.save()
+
+#         response = humanize(agent, message,
+#             "Ask which add-ons user wants."
+#             " Zero Depreciation,\n"
+#             " Engine Protection,\n"
+#             " Return to Invoice"
+#         )
+#         return clean_for_voice(response)
+
+#     if session.stage == "car_addons":
+
+#         state["addons"] = message.strip()
+#         session.stage = "car_previous_claim"
+#         session.state = state
+#         session.save()
+
+#         response = humanize(agent, message,
+#             "Ask if user made any claims last year."
+#         )
+
+#     if session.stage == "car_previous_claim":
+
+#         state["previous_claim"] = message.strip()
+#         session.stage = "insurance_lead_capture"
+#         session.state = state
+#         session.save()
+
+#         response = humanize(agent, message,
+#             "Ask user to share their name."
+#         )
+#         return clean_for_voice(response)
+
+#     # =====================================================
+#     # TERM LIFE INSURANCE FLOW
+#     # =====================================================
+
+#     if session.stage == "term_cover_for":
+
+#         state["cover_for"] = message.strip()
+#         session.stage = "term_age"
+#         session.state = state
+#         session.save()
+
+#         response = humanize(agent, message,
+#             "Ask age group options. 18-25, 26-35, 36-45, 46-55, 56-65, Above 65 "
+#         )
+#         return clean_for_voice(response)
+
+
+#     if session.stage == "term_age":
+
+#         state["age"] = message.strip()
+#         session.stage = "term_income"
+#         session.state = state
+#         session.save()
+
+#         response = humanize(agent, message,
+#             "Ask preferred sum insured: 3-5L, 5-10L, 10-25L, 25L+."
+#         )
+#         return clean_for_voice(response)
+
+
+#     if session.stage == "term_income":
+
+#         state["income"] = message.strip()
+#         session.stage = "term_coverage"
+#         session.state = state
+#         session.save()
+        
+
+#         response = humanize(agent, message,
+#             "Ask life cover amount options. 50L, 1 Crore, 2 Crore, Above 2 Crore"
+#         )
+#         return clean_for_voice(response)
+
+
+#     if session.stage == "term_coverage":
+
+#         state["coverage"] = message.strip()
+#         session.stage = "term_duration"
+#         session.state = state
+#         session.save()
+
+#         response = humanize(agent, message,
+#             "Ask policy duration options."
+#             "Till age 60,\n"
+#             "Till age 65,\n"
+#             "Till age 70,\n"
+#             "Whole life coverage"
+#         )
+#         return clean_for_voice(response)
+
+
+#     if session.stage == "term_duration":
+
+#         state["duration"] = message.strip()
+#         session.stage = "term_smoker"
+#         session.state = state
+#         session.save()
+
+#         response = humanize(agent, message,
+#             "Ask if the user is a smoker (Yes/No)."
+#         )
+#         return clean_for_voice(response)
+
+
+#     if session.stage == "term_smoker":
+
+#         state["smoker"] = message.strip()
+#         session.stage = "term_riders"
+#         session.state = state
+#         session.save()
+
+#         response = humanize(agent, message,
+#             "Ask which riders user wants."
+#             "Critical illness rider,\n"
+#             "Accidental death benefit,\n"
+#             "Waiver of premium,\n"
+#             "Income payout option\n"
+#             "You can choose one or multiple riders."
+#         )
+#         return clean_for_voice(response)
+
+
+#     if session.stage == "term_riders":
+
+#         state["riders"] = message.strip()
+#         session.stage = "insurance_lead_capture"
+#         session.state = state
+#         session.save()
+
+#         response = humanize(agent, message,
+#             "Ask user to share their name."
+#         )
+#         return clean_for_voice(response)
+
+
+#     # if session.stage == "insurance_lead_phone":
+
+#     #     state["phone"] = message.strip()
+#     #     session.stage = "insurance_lead_email"
+#     #     session.state = state
+#     #     session.save()
+
+#     #     response = humanize(agent, message, "Ask for phone number and email address.")
+
+
+#     # if session.stage == "insurance_lead_email":
+
+#     #     state["email"] = message.strip()
+#     #     session.stage = "completed"
+#     #     session.state = state
+#     #     session.save()
+
+#     #     response = humanize(agent, message,
+#     #         "Thank user and tell advisor will contact soon."
+#     #     )
+
+#     # # =====================================================
+#     # # LEAD CAPTURE
+#     # # =====================================================
+
+#     # if session.stage == "insurance_lead_capture":
+
+#     #     if not state.get("name"):
+#     #         state["name"] = message.strip()
+#     #         session.state = state
+#     #         session.save()
+#     #         response = humanize(agent, message, "Ask for phone number.")
+#     #         return clean_for_voice(response)
+
+#     #     elif not state.get("phone"):
+#     #         state["phone"] = message.strip()
+#     #         session.state = state
+#     #         session.save()
+#     #         response = humanize(agent, message, "Ask for email address.")
+#     #         return clean_for_voice(response)
+
+#     #     elif not state.get("email"):
+#     #         state["email"] = message.strip()
+#     #         session.stage = "completed"
+#     #         session.state = state
+#     #         session.save()
+
+#     #         return (
+#     #             " thank you for choosing us! Our advisor will contact you shortly."
+#     #         )
+
+
+#     if session.stage == "insurance_lead_capture":
+
+#         # ✅ STEP 1 — NAME
+#         if not state.get("name"):
+#             state["name"] = message.strip()
+#             session.state = state
+#             session.save()
+
+#             response = humanize(agent, message, "Ask for email address.")
+#             return clean_for_voice(response)
+
+#         # ✅ STEP 2 — EMAIL (NO PHONE)
+#         elif not state.get("email"):
+#             state["email"] = message.strip()
+#             session.stage = "completed"
+#             session.state = state
+#             session.save()
+
+#             return (
+#                 "Thank you for sharing your details. "
+#                 "Our advisor will connect with you shortly."
+#             )
+
+#      # =====================================================
+#     # 🔒 HARD STOP AFTER COMPLETION
+#     # =====================================================
+
+#     if session.stage == "completed":
+#         return "thank you. Our advisor will contact you shortly."****************************************************
+
+
+# ✅ ADD HERE (top of file or just above strategy)
+
+def is_insurance_related(agent, message):
+
+    from conversations.services.azure_openai_service import generate_response
+
+    prompt = f"""
+You are a strict domain classifier.
+
+User message:
+"{message}"
+
+Is this related to insurance ONLY?
+
+Include:
+- policies, premium, claim, coverage
+- companies like HDFC, ICICI, LIC, Kotak
+- comparison between insurers
+
+Exclude:
+- health advice (fever, medicine)
+- sports
+- general life advice
+- anything not related to insurance
+
+Answer ONLY:
+YES or NO
+"""
+
+    result = generate_response(prompt, message).strip().upper()
+
+    return result == "YES"
+
 def insurance_transaction_strategy(agent, message, session):
 
     def clean_for_voice(text):
@@ -3278,12 +4137,6 @@ def insurance_transaction_strategy(agent, message, session):
 
         # Convert "5 L" → "5 lakh"
         text = re.sub(r"(\d+)\s*L\b", r"\1 lakh", text)
-
-        # Convert "2-3 Cr" → "2 to 3 crore"
-        text = re.sub(r"(\d+)\s*-\s*(\d+)\s*Cr\b", r"\1 to \2 crore", text)
-
-        # Convert "5 Cr" → "5 crore"
-        text = re.sub(r"(\d+)\s*Cr\b", r"\1 crore", text)
 
         text = text.replace("\n", ". ")         # better voice pause
         return text.strip()
@@ -3305,27 +4158,10 @@ def insurance_transaction_strategy(agent, message, session):
         "difference", "should", "guide"
     ]
 
-    info_request_words = [
-        "know", "about", "information", "details",
-        "explain", "tell me", "learn", "guide",
-        "understand", "meaning", "what is",
-        "how does", "overview"
-    ]
-
-    confusion_keywords = [
-        "don't know", "dont know", "not sure",
-        "explain", "what is this", "what is that",
-        "help me understand", "meaning"
-    ]
     is_question = (
         "?" in message
         or any(word in msg for word in question_keywords)
     )
-    is_info_request = any(word in msg for word in info_request_words)
-
-    is_confused = any(word in msg for word in confusion_keywords)
-
-    is_knowledge_intent = is_question or is_info_request or is_confused
 
     # Skip domain check for small inputs (flow answers)
     if len(msg.split()) <= 2:
@@ -3340,8 +4176,7 @@ def insurance_transaction_strategy(agent, message, session):
     if in_flow:
 
         # ✅ If insurance question → LLM interrupt
-        # if insurance_related and is_question and len(msg.split()) > 3:
-        if insurance_related and is_knowledge_intent:
+        if insurance_related and is_question and len(msg.split()) > 3:
 
             from knowledge.services.retriever import retrieve_relevant_chunks
             from conversations.services.azure_openai_service import generate_response
@@ -3375,8 +4210,7 @@ def insurance_transaction_strategy(agent, message, session):
     if not in_flow:
 
         # ✅ Insurance question → LLM
-        # if insurance_related and is_question:
-        if insurance_related and is_knowledge_intent:
+        if insurance_related and is_question:
 
             from knowledge.services.retriever import retrieve_relevant_chunks
             from conversations.services.azure_openai_service import generate_response
@@ -3456,12 +4290,11 @@ def insurance_transaction_strategy(agent, message, session):
     # 🔹 INSURANCE INFORMATION REQUEST DETECTION (NEW)
     # =====================================================
 
-    # info_request_words = [
-    #     "know", "about", "information", "details",
-    #     "explain", "tell me", "learn", "guide",
-    #     "understand", "meaning", "what is",
-    #     "how does", "overview"
-    # ]
+    info_request_words = [
+        "know", "information", "info", "details",
+        "explain", "tell me about", "about",
+        "what is", "how does", "guide"
+    ]
 
     flow_request_words = [
         "want", "need", "buy", "get", "apply",
@@ -3469,10 +4302,11 @@ def insurance_transaction_strategy(agent, message, session):
     ]
 
     insurance_keywords = [
-        "insurance",   # ✅ THIS LINE FIXES EVERYTHING
-        "health", "car", "vehicle", "term", "life",
-        "property", "home", "travel", "bike",
-        "business", "fire", "marine"
+        "health insurance",
+        "car insurance",
+        "vehicle insurance",
+        "term insurance",
+        "life insurance"
     ]
 
     # If user asking for insurance knowledge (not buying)
@@ -3590,32 +4424,6 @@ def insurance_transaction_strategy(agent, message, session):
     #         )
 
     #     return clean_for_voice(llm_response)
-
-    # =====================================================
-    # 🧠 PRIORITY: KNOWLEDGE INTENT (BEFORE FLOW)
-    # =====================================================
-
-    if not in_flow and insurance_related and is_knowledge_intent:
-
-        from knowledge.services.retriever import retrieve_relevant_chunks
-        from conversations.services.azure_openai_service import generate_response
-
-        context = retrieve_relevant_chunks(agent, message)
-
-        llm_prompt = f"""
-    {agent.resolved_prompt}
-
-    You are an Insurance Advisor.
-
-    User Question:
-    {message}
-
-    Answer clearly in 2–3 lines.
-    """
-
-        answer = generate_response(llm_prompt, message)
-
-        return clean_for_voice(answer)
 
     # =====================================================
     # DETECT PRODUCT FROM MESSAGE
@@ -4032,36 +4840,9 @@ def insurance_transaction_strategy(agent, message, session):
     #         "Thank user and tell advisor will contact soon."
     #     )
 
-    # # =====================================================
-    # # LEAD CAPTURE
-    # # =====================================================
-
-    # if session.stage == "insurance_lead_capture":
-
-    #     if not state.get("name"):
-    #         state["name"] = message.strip()
-    #         session.state = state
-    #         session.save()
-    #         response = humanize(agent, message, "Ask for phone number.")
-    #         return clean_for_voice(response)
-
-    #     elif not state.get("phone"):
-    #         state["phone"] = message.strip()
-    #         session.state = state
-    #         session.save()
-    #         response = humanize(agent, message, "Ask for email address.")
-    #         return clean_for_voice(response)
-
-    #     elif not state.get("email"):
-    #         state["email"] = message.strip()
-    #         session.stage = "completed"
-    #         session.state = state
-    #         session.save()
-
-    #         return (
-    #             " thank you for choosing us! Our advisor will contact you shortly."
-    #         )
-
+    # =====================================================
+    # LEAD CAPTURE (UPDATED)
+    # =====================================================
 
     if session.stage == "insurance_lead_capture":
 
@@ -4082,8 +4863,67 @@ def insurance_transaction_strategy(agent, message, session):
             session.save()
 
             return (
-                "Thank you for sharing your details. "
-                "Our advisor will connect with you shortly."
+                "Thank you for sharing your details Our advisor will connect with you shortly." 
+            )
+    # =====================================================
+    # 🔒 HARD STOP AFTER COMPLETION
+    # =====================================================
+
+    if session.stage == "completed":
+        return "thank you. Our advisor will contact you shortly."
+
+
+    # if session.stage == "insurance_lead_phone":
+
+    #     state["phone"] = message.strip()
+    #     session.stage = "insurance_lead_email"
+    #     session.state = state
+    #     session.save()
+
+    #     response = humanize(agent, message, "Ask for phone number and email address.")
+
+
+    # if session.stage == "insurance_lead_email":
+
+    #     state["email"] = message.strip()
+    #     session.stage = "completed"
+    #     session.state = state
+    #     session.save()
+
+    #     response = humanize(agent, message,
+    #         "Thank user and tell advisor will contact soon."
+    #     )
+
+    # =====================================================
+    # LEAD CAPTURE
+    # =====================================================
+
+    if session.stage == "insurance_lead_capture":
+
+        if not state.get("name"):
+            state["name"] = message.strip()
+            session.state = state
+            session.save()
+            response = humanize(agent, message, "Ask for phone number.")
+            return clean_for_voice(response)
+
+        elif not state.get("phone"):
+            state["phone"] = message.strip()
+            session.state = state
+            session.save()
+            response = humanize(agent, message, "Ask for email address.")
+            return clean_for_voice(response)
+
+        elif not state.get("email"):
+            state["email"] = message.strip()
+            session.stage = "completed"
+            session.state = state
+            session.save()
+
+            return (
+                " Thank you for choosing us!\n\n"
+                "We’re preparing the best insurance plan for you.\n"
+                "Our expert will connect with you shortly."
             )
 
      # =====================================================
@@ -4092,6 +4932,7 @@ def insurance_transaction_strategy(agent, message, session):
 
     if session.stage == "completed":
         return "thank you. Our advisor will contact you shortly."
+
 
 
 # def insurance_transaction_strategy(agent, message, session):
