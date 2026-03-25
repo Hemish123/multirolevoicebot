@@ -533,7 +533,7 @@ class DemoChatAPIView(APIView):
         return Response({
             "user_text": message,
             "reply": reply,
-            "audio": synthesize_to_base64(clean_reply),
+            "audio": synthesize_to_base64(clean_reply, mode="web"),
             "session_id": session_id
         })
     

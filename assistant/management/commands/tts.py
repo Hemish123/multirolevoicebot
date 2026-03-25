@@ -91,10 +91,54 @@ AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION")
 if not AZURE_SPEECH_KEY or not AZURE_SPEECH_REGION:
     raise RuntimeError("Azure Speech config missing")
 
-def synthesize_to_base64(text: str, voice="en-IN-NeerjaNeural") -> str:
+# def synthesize_to_base64(text: str, voice="en-IN-NeerjaNeural") -> str:
+#     if not text:
+#         return ""
+    
+#     text = text.strip()
+#     text = text.replace("&", "and").replace("\n", " ")
+
+#     speech_config = speechsdk.SpeechConfig(
+#         subscription=AZURE_SPEECH_KEY,
+#         region=AZURE_SPEECH_REGION
+#     )
+#     speech_config.speech_synthesis_voice_name = voice
+
+#     # ✅ Telecom optimized
+#     speech_config.set_speech_synthesis_output_format(
+#         speechsdk.SpeechSynthesisOutputFormat.Raw8Khz16BitMonoPcm
+#     )
+
+
+#     synthesizer = speechsdk.SpeechSynthesizer(
+#         speech_config=speech_config,
+#         audio_config=None
+#     )
+
+#     # result = synthesizer.speak_text_async(text).get()
+#     ssml = f"""
+#     <speak version='1.0' xml:lang='en-IN'>
+#         <voice name='{voice}'>
+#             <prosody rate='-5%' pitch='0%'>
+#                 {text}
+#             </prosody>
+#         </voice>
+#     </speak>
+#     """
+
+#     result = synthesizer.speak_ssml_async(ssml).get()
+
+#     if result.reason != speechsdk.ResultReason.SynthesizingAudioCompleted:
+#         raise RuntimeError("Azure TTS failed")
+
+#     return base64.b64encode(result.audio_data).decode("utf-8")
+
+
+
+def synthesize_to_base64(text: str, voice="en-IN-NeerjaNeural", mode="web") -> str:
     if not text:
         return ""
-    
+
     text = text.strip()
     text = text.replace("&", "and").replace("\n", " ")
 
@@ -104,18 +148,22 @@ def synthesize_to_base64(text: str, voice="en-IN-NeerjaNeural") -> str:
     )
     speech_config.speech_synthesis_voice_name = voice
 
-    # ✅ Telecom optimized
-    speech_config.set_speech_synthesis_output_format(
-        speechsdk.SpeechSynthesisOutputFormat.Raw8Khz16BitMonoPcm
-    )
-
+    if mode == "telephony":
+        # ✅ Telecom — no WAV header, 8kHz raw PCM
+        speech_config.set_speech_synthesis_output_format(
+            speechsdk.SpeechSynthesisOutputFormat.Raw8Khz16BitMonoPcm
+        )
+    else:
+        # ✅ Web browser — WAV header included, 16kHz, browser can play directly
+        speech_config.set_speech_synthesis_output_format(
+            speechsdk.SpeechSynthesisOutputFormat.Riff16Khz16BitMonoPcm
+        )
 
     synthesizer = speechsdk.SpeechSynthesizer(
         speech_config=speech_config,
         audio_config=None
     )
 
-    # result = synthesizer.speak_text_async(text).get()
     ssml = f"""
     <speak version='1.0' xml:lang='en-IN'>
         <voice name='{voice}'>
